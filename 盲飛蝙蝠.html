@@ -153,7 +153,7 @@ kbd{font-family:var(--f-mono);font-size:.82em;padding:0 .4em;border:1px solid va
       <div class="hud-l" id="hudL" hidden>
         <div class="score"><span id="score">0</span><span class="mult" id="mult">×1</span></div>
         <div class="sub"><span><b id="dist">0 m</b></span><span>飛蛾 <b id="moths">0</b></span></div>
-        <div class="blind" id="blindWrap"><span>盲飛</span><span class="v" id="blind">0.0</span><span class="unit">s</span><span class="pips" id="pips"><i></i><i></i><i></i><i></i></span></div>
+        <div class="blind" id="blindWrap"><span>盲飛</span><span class="v" id="blind">0.0</span><span class="unit">s</span><span class="pips" id="pips"></span></div>
       </div>
       <div class="hud-r" id="hudR" hidden>
         <div class="meter"><span>聲能</span><div class="bar" id="bar"><div class="fill" id="energyFill"></div><div class="cost" id="costMark" hidden></div></div></div>
@@ -174,7 +174,7 @@ kbd{font-family:var(--f-mono);font-size:.82em;padding:0 .4em;border:1px solid va
           <ul class="rules">
             <li><span class="k">移動</span><span>滑鼠上下、<kbd>↑</kbd><kbd>↓</kbd>，或手指在畫面上拖曳</span></li>
             <li><span class="k">發聲</span><span>按住 <kbd>空白鍵</kbd> 或滑鼠左鍵蓄力，放開送出聲波（手機用右下角「聲」鈕）。蓄得越久頻率越低、傳得越遠，也越耗聲能。</span></li>
-            <li><span class="k">倍率</span><span>每安靜 1.5 秒倍率加一，最高 ×5。一開口就歸零。</span></li>
+            <li><span class="k">倍率</span><span id="ruleMult"></span></li>
             <li><span class="k">飛蛾</span><span>黑暗中偶爾閃一下的琥珀色小點，吃到補聲能、加分。</span></li>
           </ul>
           <div class="legend"><span>近</span><i class="ramp"></i><span>遠</span><span class="sep">回聲顏色代表距離</span><span class="moth-dot"></span><span>飛蛾</span></div>
@@ -215,16 +215,170 @@ const rs = getComputedStyle(document.documentElement);
 const tok = (n, f) => (rs.getPropertyValue(n) || '').trim() || f;
 const INK = tok('--ink', '#0b0a12'), BONE = tok('--bone', '#ece5d3'), MOTH = tok('--moth', '#ffc565'), NEAR = tok('--near', '#ff6a4d');
 
-const WH = 600, SEG = 20, UPM = 40, BAT_R = 9, TAU = Math.PI * 2;
+// ---------- tuning
+// 遊戲平衡數值都集中在這裡，改完重新整理頁面就會生效。距離的單位是世界單位，時間的單位是秒。
+// [起點, 終點]：隨難度或蓄力（0 到 1）漸變。[最小, 最大]：隨機範圍。
+const CONFIG = {
+  world: {
+    height: 600,                 // 世界高度
+    segment: 20,                 // 洞壁每隔多遠取樣一次
+    unitsPerMeter: 40,           // 幾個單位算 1 公尺
+    generateAhead: 900,          // 畫面右緣之外先生成多遠，要大於 sonar.radius 的最大值
+    keepBehind: 1000             // 鏡頭後方保留多遠的地形
+  },
+  view: {
+    minWidth: 520,               // 直立螢幕時至少看得到的世界寬度
+    batRatio: 0.24,              // 蝙蝠位在畫面寬度的比例
+    batOffset: [90, 340]         // 蝙蝠離畫面左緣的距離 [最小, 最大]
+  },
+  difficulty: {
+    startMeters: 40,             // 飛到這裡才開始變難
+    rampMeters: 1400             // 再飛多遠達到最高難度
+  },
+  bat: {
+    flySpeed: [190, 440],        // 前進速度 [起點, 終點]
+    speedCurve: 0.9,             // 小於 1 時前期加速較快
+    hitRadius: 7.2,              // 碰撞半徑
+    followGain: 9,               // 追上目標高度的靈敏度
+    maxVy: 560,                  // 垂直速度上限
+    keySpeed: 520,               // 方向鍵移動目標高度的速度
+    touchGain: 1.4,              // 手指拖曳的倍率
+    edgeMargin: 6                // 目標高度與世界上下緣的距離
+  },
+  cave: {
+    startGap: 430,               // 開場洞高
+    gap: [420, 165],             // 目標洞高 [起點, 終點]
+    gapCurve: 0.8,               // 小於 1 時前期收窄較快
+    gapFollow: 0.08,             // 洞高趨近目標的速度
+    wobbleFast: { freq: 0.0035, amp: 0.16 },  // 洞高的短週期起伏
+    wobbleSlow: { freq: 0.0011, amp: 0.1 },   // 洞高的長週期起伏
+    minPass: [120, 66],          // 洞頂到洞底的最小間隙 [起點, 終點]
+    straightUntil: 480,          // 開場直線路段的長度
+    driftAccel: [0.7, 1.9],      // 洞中心上下飄移的力道 [起點, 終點]
+    driftLimit: [2.5, 5],        // 洞中心每次取樣的最大位移 [起點, 終點]
+    driftDamping: 0.95,          // 飄移的衰減
+    edgeMargin: 22,              // 洞壁與世界上下緣的最小距離
+    edgeBounce: 0.5,             // 碰到上下緣時的反彈比例
+    jitter: [7, 15]              // 洞壁粗糙度 [起點, 終點]
+  },
+  obstacles: {
+    startX: 640,                 // 這個位置之後才放障礙
+    firstDelay: 22,              // 第一個障礙前等待幾個取樣點
+    interval: [24, 9],           // 障礙間隔的固定部分（取樣點）[起點, 終點]
+    intervalRandom: [18, 8],     // 障礙間隔的隨機部分（取樣點）[起點, 終點]
+    rockChanceEarly: 0.1,        // 前期出現岩塊的機率，其餘是尖刺
+    rockChanceLate: 0.28,        // 後期出現岩塊的機率
+    rockLateFrom: 0.12,          // 難度超過此值算後期
+    spike: {
+      halfWidth: [3, 6],         // 半寬（取樣點）[最小, 最大]
+      height: [0.38, 0.78],      // 高度佔洞高的比例 [最小, 最大]
+      sharpness: 1.35,           // 越大越尖
+      roughness: 4,              // 表面起伏
+      labelHeight: 14            // 超過此高度，死因算鐘乳石或石筍
+    },
+    doubleSpike: {
+      from: 0.35,                // 難度超過此值才會上下連續出現
+      chance: 0.35,              // 出現機率
+      pad: [9, 7]                // 第二根延後幾個取樣點 [起點, 終點]
+    },
+    rock: {
+      radius: [15, 28],          // 半徑 [最小, 最大]
+      wideCaveGap: 260,          // 洞高超過此值時放大岩塊
+      wideCaveScale: 1.25,       // 放大倍率
+      wallMargin: 6,             // 與洞壁的最小距離
+      passMargin: 8,             // 通道要比 minPass 再寬多少
+      lead: 3,                   // 放在目前位置前方幾個取樣點
+      sides: 9,                  // 多邊形邊數
+      jag: [0.78, 1.12],         // 頂點半徑比例 [最小, 最大]
+      hitScale: 0.88             // 碰撞半徑比例
+    }
+  },
+  moths: {
+    firstX: 760,                 // 第一隻飛蛾的位置
+    spacing: [280, 640],         // 飛蛾間距 [最小, 最大]
+    spacingScale: [1, 1.25],     // 間距隨難度放大的倍率 [起點, 終點]
+    spawnAhead: 500,             // 畫面右緣之外先生成多遠
+    keepBehind: 300,             // 鏡頭後方保留多遠
+    minGap: 80,                  // 洞高小於此值時不放飛蛾
+    wallMargin: 32,              // 生成時與洞壁的距離
+    rockClearance: 34,           // 生成時與岩塊的距離
+    eatRadius: 24,               // 吃到飛蛾的距離
+    swayX: { speed: 1.6, amp: 16 },  // 水平飛舞
+    swayY: { speed: 2.2, amp: 24 },  // 垂直飛舞
+    swayWallMargin: 12,          // 飛舞時與洞壁的距離
+    firstTwinkle: [0.5, 3],      // 第一次閃爍的等待秒數 [最小, 最大]
+    twinkleEvery: [1.4, 3.6],    // 之後閃爍的間隔秒數 [最小, 最大]
+    twinkleRange: 560            // 離蝙蝠多近才閃爍
+  },
+  sonar: {
+    radius: [230, 760],          // 聲波半徑 [起點, 終點]
+    rays: [150, 380],            // 射線數量 [起點, 終點]
+    life: [2.1, 3.4],            // 回聲殘留秒數 [起點, 終點]
+    waveSpeed: 950,              // 聲波擴散速度
+    chargeTime: 0.8,             // 蓄滿需要的秒數
+    startCharge: 0.8,            // 開場免費聲波的蓄力值
+    soundSpeed: 343,             // 換算「最近回聲」毫秒用的音速（公尺/秒）
+    dangerEcho: 85,              // 最近回聲小於此距離時 HUD 變紅
+    colorRange: [40, 560]        // 回聲顏色對應的距離 [最近, 最遠]
+  },
+  energy: {
+    max: 100,                    // 聲能上限
+    regen: 6.5,                  // 每秒回復
+    pingBase: 10,                // 發聲的基本消耗，低於此值不能發聲
+    pingCharge: 24,              // 蓄滿時的額外消耗
+    moth: 20,                    // 吃一隻飛蛾回復多少
+    lowWarning: 22               // 低於此值時聲能條變紅
+  },
+  score: {
+    multInterval: 1.5,           // 每安靜幾秒倍率加一
+    multMax: 5,                  // 倍率上限
+    mothPoints: 20               // 飛蛾基礎分數，會再乘倍率
+  },
+  audio: {
+    master: 0.7,                 // 總音量
+    callStart: [3400, 1500],     // 叫聲起始頻率 [起點, 終點]
+    callEnd: [1500, 420],        // 叫聲結束頻率 [起點, 終點]
+    callLength: [0.07, 0.2],     // 叫聲長度 [起點, 終點]
+    callVolume: [0.14, 0.2],     // 叫聲音量 [起點, 終點]
+    echoVolume: 0.1,             // 回聲音量
+    echoFalloff: 1.4,            // 回聲隨距離衰減的速度
+    echoMinVolume: 0.006,        // 低於此音量就不播放
+    panRange: 320,               // 水平距離多遠時聲音完全偏向一側
+    ceilingPitch: 1.3,           // 洞頂回聲的音高倍率
+    floorPitch: 0.76,            // 洞底回聲的音高倍率
+    rockPitch: 1                 // 岩塊回聲的音高倍率
+  },
+  death: {
+    delay: 1.5,                  // 撞擊後幾秒顯示結算
+    bounce: 140,                 // 撞擊後向上彈起的速度
+    gravity: 900,                // 墜落重力
+    slowdown: 0.03,              // 每秒剩下的前進速度比例
+    shake: 14,                   // 畫面震動強度
+    ping: { R: 1500, n: 900, ws: 1500, life: 9 }  // 死亡時照亮全場的聲波：半徑、射線數、速度、殘留秒數
+  },
+  attract: {
+    speed: 120,                  // 開始頁的飛行速度
+    batRatio: 0.6,               // 開始頁蝙蝠位在畫面寬度的比例
+    pingCharge: 0.55,            // 自動聲波的蓄力值
+    pingLife: 3.4,               // 自動聲波的殘留秒數
+    pingEvery: 1.3,              // 自動發聲的間隔
+    resetX: 30000                // 飛到這裡重置世界
+  }
+};
+
+const { height: WH, segment: SEG, unitsPerMeter: UPM } = CONFIG.world;
+const TAU = Math.PI * 2;
 const reduceMotion = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
 const lerp = (a, b, t) => a + (b - a) * t;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const rand = (a, b) => a + Math.random() * (b - a);
+const mix = ([a, b], t) => lerp(a, b, t);
+const randIn = ([a, b]) => rand(a, b);
 
 // echo colour: near = coral, far = violet
 const PAL = [];
 for (let i = 0; i < 48; i++) { const u = i / 47; PAL.push(`hsl(${((370 - 120 * u) % 360).toFixed(1)}, ${(100 - 15 * u).toFixed(1)}%, ${(63 + 5 * u).toFixed(1)}%)`); }
-const echoCol = d => PAL[Math.round(clamp((d - 40) / 520, 0, 1) * 47)];
+const echoCol = d => { const [a, b] = CONFIG.sonar.colorRange; return PAL[Math.round(clamp((d - a) / (b - a), 0, 1) * 47)]; };
 
 const CAUSE = { ceil: ['撞上', '洞頂'], stal: ['撞上', '鐘乳石'], floor: ['擦到', '洞底'], mite: ['撞上', '石筍'], rock: ['撞上', '岩塊'] };
 
@@ -235,11 +389,11 @@ const store = {
 let best = +store.get('mangfei-best') || 0;
 let runs = 0;
 
-const S = { mode: 'attract', t: 0, speed: 120, attractNext: 0, shake: 0, charging: false, charge: 0, chargeStart: 0, echoNear: Infinity, echoMs: null, mult: 1, energy: 100 };
+const S = { mode: 'attract', t: 0, speed: CONFIG.attract.speed, attractNext: 0, shake: 0, charging: false, charge: 0, chargeStart: 0, echoNear: Infinity, echoMs: null, mult: 1, energy: CONFIG.energy.max };
 
 // ---------- viewport
-let dpr = 1, sw = 1, sh = 1, scale = 1, offY = 0, viewW = 520;
-const batOffset = () => S.mode === 'attract' ? viewW * 0.6 : clamp(viewW * 0.24, 90, 340);
+let dpr = 1, sw = 1, sh = 1, scale = 1, offY = 0, viewW = CONFIG.view.minWidth;
+const batOffset = () => S.mode === 'attract' ? viewW * CONFIG.attract.batRatio : clamp(viewW * CONFIG.view.batRatio, ...CONFIG.view.batOffset);
 let dust = [];
 function initDust() {
   dust = [];
@@ -251,7 +405,8 @@ function resize() {
   sw = Math.max(1, r.width); sh = Math.max(1, r.height);
   dpr = Math.min(window.devicePixelRatio || 1, 2);
   cv.width = Math.round(sw * dpr); cv.height = Math.round(sh * dpr);
-  if (sw / sh < 520 / WH) { scale = sw / 520; offY = (sh - WH * scale) / 2; }
+  const minW = CONFIG.view.minWidth;
+  if (sw / sh < minW / WH) { scale = sw / minW; offY = (sh - WH * scale) / 2; }
   else { scale = sh / WH; offY = 0; }
   viewW = sw / scale;
   initDust();
@@ -261,72 +416,74 @@ function resize() {
 function newWorld() {
   S.base = -60; S.ceil = []; S.flo = []; S.cT = []; S.fT = [];
   S.rocks = []; S.moths = []; S.pings = []; S.popups = []; S.sparks = [];
-  S.gen = { center: 300, cv: 0, gap: 430, phase: Math.random() * 100, next: 22, spC: [], spF: [] };
-  S.cam = 0; S.nextMothX = 760; S.mothId = 0; S.rockId = 0;
-  S.bat = { x: 0, y: 300, vy: 0, ty: 300, flap: 0 };
+  S.gen = { center: WH / 2, cv: 0, gap: CONFIG.cave.startGap, phase: Math.random() * 100, next: CONFIG.obstacles.firstDelay, spC: [], spF: [] };
+  S.cam = 0; S.nextMothX = CONFIG.moths.firstX; S.mothId = 0; S.rockId = 0;
+  S.bat = { x: 0, y: WH / 2, vy: 0, ty: WH / 2, flap: 0 };
 }
-const diffAt = x => clamp((x / UPM - 40) / 1400, 0, 1);
+const diffAt = x => clamp((x / UPM - CONFIG.difficulty.startMeters) / CONFIG.difficulty.rampMeters, 0, 1);
 
 function spike(gap, d) {
-  const w = Math.round(rand(3, 6)), h = gap * rand(0.38, 0.78), a = [];
-  for (let k = -w; k <= w; k++) { const t = 1 - Math.abs(k) / (w + 0.6); a.push(h * Math.pow(t, 1.35) + rand(-4, 4)); }
+  const cfg = CONFIG.obstacles.spike;
+  const w = Math.round(randIn(cfg.halfWidth)), h = gap * randIn(cfg.height), a = [];
+  for (let k = -w; k <= w; k++) { const t = 1 - Math.abs(k) / (w + 0.6); a.push(h * Math.pow(t, cfg.sharpness) + rand(-cfg.roughness, cfg.roughness)); }
   return a;
 }
 function placeRock(x, g, d, minPass) {
+  const cfg = CONFIG.obstacles.rock, m = cfg.wallMargin;
   const top = g.center - g.gap / 2, bot = g.center + g.gap / 2;
-  const r = rand(15, 28) * (g.gap > 260 ? 1.25 : 1);
-  if (g.gap - 2 * r - 12 < minPass) return;
-  let y = rand(top + r + 6, bot - r - 6);
-  if (Math.max((y - r) - top, bot - (y + r)) < minPass + 8) y = Math.random() < 0.5 ? top + r + 6 : bot - r - 6;
-  const n = 9, pts = [], a0 = Math.random() * TAU;
-  for (let k = 0; k < n; k++) { const a = a0 + k / n * TAU, rr = r * rand(0.78, 1.12); pts.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr]); }
+  const r = randIn(cfg.radius) * (g.gap > cfg.wideCaveGap ? cfg.wideCaveScale : 1);
+  if (g.gap - 2 * r - 2 * m < minPass) return;
+  let y = rand(top + r + m, bot - r - m);
+  if (Math.max((y - r) - top, bot - (y + r)) < minPass + cfg.passMargin) y = Math.random() < 0.5 ? top + r + m : bot - r - m;
+  const n = cfg.sides, pts = [], a0 = Math.random() * TAU;
+  for (let k = 0; k < n; k++) { const a = a0 + k / n * TAU, rr = r * randIn(cfg.jag); pts.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr]); }
   S.rocks.push({ id: ++S.rockId, x, y, r, pts });
 }
 function genSample() {
-  const g = S.gen, i = S.base + S.ceil.length, x = i * SEG, d = diffAt(x);
-  const gapT = lerp(420, 165, Math.pow(d, 0.8));
-  const wob = Math.sin(x * 0.0035 + g.phase) * 0.16 + Math.sin(x * 0.0011 + g.phase * 2.3) * 0.1;
-  g.gap += (gapT * (1 + wob) - g.gap) * 0.08;
-  const lim = lerp(2.5, 5, d);
-  g.cv = clamp((g.cv + (Math.random() - 0.5) * lerp(0.7, 1.9, d)) * 0.95, -lim, lim);
-  if (x > 480) g.center += g.cv;
-  const half = g.gap / 2, lo = half + 22, hi = WH - half - 22;
-  if (g.center < lo) { g.center = lo; g.cv = Math.abs(g.cv) * 0.5; }
-  if (g.center > hi) { g.center = hi; g.cv = -Math.abs(g.cv) * 0.5; }
-  const jit = lerp(7, 15, d);
+  const g = S.gen, cfg = CONFIG.cave, obs = CONFIG.obstacles, i = S.base + S.ceil.length, x = i * SEG, d = diffAt(x);
+  const gapT = mix(cfg.gap, Math.pow(d, cfg.gapCurve));
+  const wob = Math.sin(x * cfg.wobbleFast.freq + g.phase) * cfg.wobbleFast.amp + Math.sin(x * cfg.wobbleSlow.freq + g.phase * 2.3) * cfg.wobbleSlow.amp;
+  g.gap += (gapT * (1 + wob) - g.gap) * cfg.gapFollow;
+  const lim = mix(cfg.driftLimit, d);
+  g.cv = clamp((g.cv + (Math.random() - 0.5) * mix(cfg.driftAccel, d)) * cfg.driftDamping, -lim, lim);
+  if (x > cfg.straightUntil) g.center += g.cv;
+  const half = g.gap / 2, lo = half + cfg.edgeMargin, hi = WH - half - cfg.edgeMargin;
+  if (g.center < lo) { g.center = lo; g.cv = Math.abs(g.cv) * cfg.edgeBounce; }
+  if (g.center > hi) { g.center = hi; g.cv = -Math.abs(g.cv) * cfg.edgeBounce; }
+  const jit = mix(cfg.jitter, d);
   let c = g.center - half + (Math.random() - 0.5) * jit;
   let f = g.center + half + (Math.random() - 0.5) * jit;
   const sc = g.spC.length ? g.spC.shift() : 0, sf = g.spF.length ? g.spF.shift() : 0;
   c += sc; f -= sf;
-  const minPass = lerp(120, 66, d);
+  const minPass = mix(cfg.minPass, d);
   if (f - c < minPass) {
     if (sc > 0 && sf <= 0) c = f - minPass;
     else if (sf > 0 && sc <= 0) f = c + minPass;
     else { const m = (c + f) / 2; c = m - minPass / 2; f = m + minPass / 2; }
   }
   S.ceil.push(c); S.flo.push(f);
-  S.cT.push(sc > 14 ? 'stal' : 'ceil'); S.fT.push(sf > 14 ? 'mite' : 'floor');
-  if (x > 640 && !g.spC.length && !g.spF.length && --g.next <= 0) {
-    const r = Math.random(), pr = d > 0.12 ? 0.28 : 0.1;
-    if (r < pr) placeRock(x + SEG * 3, g, d, minPass);
+  S.cT.push(sc > obs.spike.labelHeight ? 'stal' : 'ceil'); S.fT.push(sf > obs.spike.labelHeight ? 'mite' : 'floor');
+  if (x > obs.startX && !g.spC.length && !g.spF.length && --g.next <= 0) {
+    const r = Math.random(), pr = d > obs.rockLateFrom ? obs.rockChanceLate : obs.rockChanceEarly;
+    if (r < pr) placeRock(x + SEG * obs.rock.lead, g, d, minPass);
     else {
       if (r < pr + (1 - pr) / 2) g.spC = spike(g.gap, d); else g.spF = spike(g.gap, d);
-      if (d > 0.35 && Math.random() < 0.35) {
-        const pad = new Array(Math.round(lerp(9, 7, d))).fill(0).concat(spike(g.gap, d));
+      if (d > obs.doubleSpike.from && Math.random() < obs.doubleSpike.chance) {
+        const pad = new Array(Math.round(mix(obs.doubleSpike.pad, d))).fill(0).concat(spike(g.gap, d));
         if (g.spC.length) g.spF = pad; else g.spC = pad;
       }
     }
-    g.next = Math.round(lerp(24, 9, d) + Math.random() * lerp(18, 8, d));
+    g.next = Math.round(mix(obs.interval, d) + Math.random() * mix(obs.intervalRandom, d));
   }
 }
 function genUntil(xmax) { while ((S.base + S.ceil.length) * SEG <= xmax) genSample(); }
 function prune() {
-  const lim = S.cam - 1000;
+  const lim = S.cam - CONFIG.world.keepBehind;
   let k = 0;
   while ((S.base + k + 1) * SEG < lim && k < S.ceil.length - 4) k++;
   if (k > 0) { S.ceil.splice(0, k); S.flo.splice(0, k); S.cT.splice(0, k); S.fT.splice(0, k); S.base += k; }
   while (S.rocks.length && S.rocks[0].x < lim) S.rocks.shift();
-  while (S.moths.length && S.moths[0].bx < S.cam - 300) S.moths.shift();
+  while (S.moths.length && S.moths[0].bx < S.cam - CONFIG.moths.keepBehind) S.moths.shift();
 }
 function wallAt(arr, x, def) {
   const fi = x / SEG - S.base, i = Math.floor(fi);
@@ -337,15 +494,16 @@ const ceilAt = x => wallAt(S.ceil, x, 0);
 const floorAt = x => wallAt(S.flo, x, WH);
 
 function spawnMoths() {
-  while (S.nextMothX < S.cam + viewW + 500) {
+  const cfg = CONFIG.moths;
+  while (S.nextMothX < S.cam + viewW + cfg.spawnAhead) {
     const x = S.nextMothX, c = ceilAt(x), f = floorAt(x);
-    if (f - c > 80) {
-      const y = rand(c + 32, f - 32);
+    if (f - c > cfg.minGap) {
+      const y = rand(c + cfg.wallMargin, f - cfg.wallMargin);
       let ok = true;
-      for (const k of S.rocks) if (Math.hypot(k.x - x, k.y - y) < k.r + 34) { ok = false; break; }
-      if (ok) S.moths.push({ id: ++S.mothId, bx: x, by: y, x, y, ph: Math.random() * TAU, blipT: -99, blipX: 0, blipY: 0, twT: -99, nextTw: S.t + rand(0.5, 3), eaten: false });
+      for (const k of S.rocks) if (Math.hypot(k.x - x, k.y - y) < k.r + cfg.rockClearance) { ok = false; break; }
+      if (ok) S.moths.push({ id: ++S.mothId, bx: x, by: y, x, y, ph: Math.random() * TAU, blipT: -99, blipX: 0, blipY: 0, twT: -99, nextTw: S.t + randIn(cfg.firstTwinkle), eaten: false });
     }
-    S.nextMothX += rand(280, 640) * lerp(1, 1.25, diffAt(x));
+    S.nextMothX += randIn(cfg.spacing) * mix(cfg.spacingScale, diffAt(x));
   }
 }
 
@@ -367,7 +525,7 @@ function cast(ox, oy, R, n) {
     segs.push({ ax, ay: S.flo[i], bx, by: S.flo[i + 1], g: 'f' });
   }
   for (const k of S.rocks) {
-    if (Math.abs(k.x - ox) > R + 50) continue;
+    if (Math.abs(k.x - ox) > R + k.r * CONFIG.obstacles.rock.jag[1]) continue;
     const P = k.pts;
     for (let j = 0; j < P.length; j++) { const A = P[j], B = P[(j + 1) % P.length]; segs.push({ ax: A[0], ay: A[1], bx: B[0], by: B[1], g: 'r' + k.id }); }
   }
@@ -384,11 +542,11 @@ function cast(ox, oy, R, n) {
   return hits;
 }
 function emitPing(c, o) {
-  const b = S.bat, kind = o.kind;
-  const R = o.R || lerp(230, 760, c);
-  const n = o.n || Math.round(lerp(150, 380, c));
-  const life = o.life || lerp(2.1, 3.4, c);
-  const ws = o.ws || 950;
+  const b = S.bat, kind = o.kind, sonar = CONFIG.sonar, audio = CONFIG.audio;
+  const R = o.R || mix(sonar.radius, c);
+  const n = o.n || Math.round(mix(sonar.rays, c));
+  const life = o.life || mix(sonar.life, c);
+  const ws = o.ws || sonar.waveSpeed;
   const hits = cast(b.x, b.y, R, n);
   S.pings.push({ ox: b.x, oy: b.y, t0: S.t, R, n, hits, life, ws, c, kind, seen: new Set() });
   if (kind !== 'player' && kind !== 'free') return;
@@ -403,17 +561,17 @@ function emitPing(c, o) {
     else if (!nr || h.d < nr.d) nr = h;
   }
   S.echoNear = near;
-  S.echoMs = isFinite(near) ? 2 * (near / UPM) / 343 * 1000 : null;
+  S.echoMs = isFinite(near) ? 2 * (near / UPM) / sonar.soundSpeed * 1000 : null;
   // the call itself: longer charge = lower, longer sweep
-  const f0 = lerp(3400, 1500, c), f1 = lerp(1500, 420, c), dur = lerp(0.07, 0.2, c);
-  chirp(f0, f1, dur, lerp(0.14, 0.2, c));
+  const f0 = mix(audio.callStart, c), f1 = mix(audio.callEnd, c), dur = mix(audio.callLength, c);
+  chirp(f0, f1, dur, mix(audio.callVolume, c));
   // echoes return in sync with the visual wave; ceiling sounds higher, floor lower
   const ech = (h, pf) => {
     if (!h) return;
-    const v = 0.1 * Math.pow(1 - h.d / R, 1.4);
-    if (v > 0.006) chirp(f0 * pf, f1 * pf, dur * 0.8, v, clamp((h.x - b.x) / 320, -1, 1), h.d / ws);
+    const v = audio.echoVolume * Math.pow(1 - h.d / R, audio.echoFalloff);
+    if (v > audio.echoMinVolume) chirp(f0 * pf, f1 * pf, dur * 0.8, v, clamp((h.x - b.x) / audio.panRange, -1, 1), h.d / ws);
   };
-  ech(nc, 1.3); ech(nf, 0.76); ech(nr, 1);
+  ech(nc, audio.ceilingPitch); ech(nf, audio.floorPitch); ech(nr, audio.rockPitch);
 }
 
 // ---------- audio
@@ -425,7 +583,7 @@ function initAudio() {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
       actx = new AC();
-      master = actx.createGain(); master.gain.value = muted ? 0 : 0.7; master.connect(actx.destination);
+      master = actx.createGain(); master.gain.value = muted ? 0 : CONFIG.audio.master; master.connect(actx.destination);
       noiseBuf = actx.createBuffer(1, Math.floor(actx.sampleRate * 0.6), actx.sampleRate);
       const d = noiseBuf.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -484,7 +642,7 @@ function syncMute() { muteBtn.classList.toggle('muted', muted); muteBtn.setAttri
 function toggleMute() {
   muted = !muted; store.set('mangfei-mute', muted ? '1' : '0'); syncMute();
   if (!muted) initAudio();
-  if (master) master.gain.setTargetAtTime(muted ? 0 : 0.7, actx.currentTime, 0.04);
+  if (master) master.gain.setTargetAtTime(muted ? 0 : CONFIG.audio.master, actx.currentTime, 0.04);
 }
 muteBtn.addEventListener('click', () => { toggleMute(); muteBtn.blur(); });
 syncMute();
@@ -517,10 +675,10 @@ function startGame() {
   initAudio();
   S.mode = 'play';
   newWorld();
-  Object.assign(S, { energy: 100, score: 0, dist: 0, mothCount: 0, pingCount: 0, maxBlind: 0, mult: 1, lastPing: S.t, charging: false, charge: 0, echoMs: null, echoNear: Infinity, speed: 190, shake: 0, multHinted: runs > 0 });
+  Object.assign(S, { energy: CONFIG.energy.max, score: 0, dist: 0, mothCount: 0, pingCount: 0, maxBlind: 0, mult: 1, lastPing: S.t, charging: false, charge: 0, echoMs: null, echoNear: Infinity, speed: CONFIG.bat.flySpeed[0], shake: 0, multHinted: runs > 0 });
   S.bat.x = batOffset();
-  genUntil(S.cam + viewW + 900); spawnMoths();
-  emitPing(0.8, { kind: 'free' });
+  genUntil(S.cam + viewW + CONFIG.world.generateAhead); spawnMoths();
+  emitPing(CONFIG.sonar.startCharge, { kind: 'free' });
   setUI('play');
   showHint(touchMode ? '拖曳移動 · 按住右下「聲」蓄力，放開發聲' : '滑鼠上下移動 · 按住左鍵或空白鍵蓄力，放開發聲', 5200);
   const a = document.activeElement; if (a && a !== document.body && a.blur) a.blur();
@@ -529,7 +687,8 @@ function tryStart(fromKey) {
   if (S.mode === 'attract') startGame();
   else if (S.mode === 'over' && (!fromKey || S.t - S.overAt > 0.5)) startGame();
 }
-const maxCharge = () => clamp((S.energy - 10) / 24, 0, 1);
+const maxCharge = () => clamp((S.energy - CONFIG.energy.pingBase) / CONFIG.energy.pingCharge, 0, 1);
+const pingCost = c => CONFIG.energy.pingBase + CONFIG.energy.pingCharge * c;
 function beginCharge() {
   if (S.mode !== 'play' || S.charging) return;
   initAudio();
@@ -539,9 +698,9 @@ function releasePing() {
   if (!S.charging) return;
   S.charging = false;
   if (S.mode !== 'play') { S.charge = 0; return; }
-  if (S.energy < 10) { fizzle(); S.charge = 0; return; }
+  if (S.energy < CONFIG.energy.pingBase) { fizzle(); S.charge = 0; return; }
   const c = Math.min(S.charge, maxCharge());
-  S.energy -= 10 + 24 * c; S.charge = 0;
+  S.energy -= pingCost(c); S.charge = 0;
   emitPing(c, { kind: 'player' });
 }
 function fizzle() {
@@ -558,9 +717,9 @@ function multUp(m) {
 }
 function eat(m) {
   m.eaten = true; S.mothCount++;
-  const pts = 20 * S.mult;
+  const pts = CONFIG.score.mothPoints * S.mult;
   S.score += pts;
-  S.energy = Math.min(100, S.energy + 20);
+  S.energy = Math.min(CONFIG.energy.max, S.energy + CONFIG.energy.moth);
   S.popups.push({ x: m.x, y: m.y - 14, text: '+' + pts, col: MOTH, t0: S.t });
   for (let i = 0; i < 12; i++) { const a = rand(0, TAU), v = rand(40, 150); S.sparks.push({ x: m.x, y: m.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t0: S.t, life: rand(0.35, 0.7) }); }
   chirp(900, 2600, 0.05, 0.06, 0, 0, 'square');
@@ -574,7 +733,7 @@ function segDist(px, py, ax, ay, bx, by) {
 }
 function typeNear(arr, x, def) { const i = Math.round(x / SEG) - S.base; return arr[i] || def; }
 function collide(b) {
-  const r = BAT_R * 0.8;
+  const r = CONFIG.bat.hitRadius;
   if (b.y < ceilAt(b.x)) return typeNear(S.cT, b.x, 'ceil');
   if (b.y > floorAt(b.x)) return typeNear(S.fT, b.x, 'floor');
   const i0 = Math.max(0, Math.floor((b.x - r) / SEG) - S.base - 1);
@@ -585,8 +744,7 @@ function collide(b) {
     if (segDist(b.x, b.y, ax, S.flo[i], bx, S.flo[i + 1]) < r) return (S.fT[i] === 'mite' || S.fT[i + 1] === 'mite') ? 'mite' : 'floor';
   }
   for (const k of S.rocks) {
-    if (Math.abs(k.x - b.x) > 80) continue;
-    const dx = k.x - b.x, dy = k.y - b.y, rr = k.r * 0.88 + r;
+    const dx = k.x - b.x, dy = k.y - b.y, rr = k.r * CONFIG.obstacles.rock.hitScale + r;
     if (dx * dx + dy * dy < rr * rr) return 'rock';
   }
   return null;
@@ -595,9 +753,9 @@ function die(type) {
   S.mode = 'dying'; S.deathT = S.t; S.cause = type;
   S.crashX = S.bat.x; S.crashY = S.bat.y;
   S.charging = false; S.charge = 0; steerId = null;
-  S.shake = reduceMotion ? 0 : 14;
-  S.bat.vy = -140;
-  emitPing(1, { kind: 'death', R: 1500, n: 900, ws: 1500, life: 9 });
+  S.shake = reduceMotion ? 0 : CONFIG.death.shake;
+  S.bat.vy = -CONFIG.death.bounce;
+  emitPing(1, { kind: 'death', ...CONFIG.death.ping });
   noise(0.45, 0.5, 220, 0.8);
   chirp(140, 38, 0.5, 0.35);
   setUI('dying');
@@ -662,7 +820,7 @@ cv.addEventListener('pointerdown', e => {
 cv.addEventListener('pointermove', e => {
   if (S.mode !== 'play') return;
   if (e.pointerType === 'mouse') S.bat.ty = toWorldY(e.clientY);
-  else if (e.pointerId === steerId) { S.bat.ty += (e.clientY - steerLastY) / scale * 1.4; steerLastY = e.clientY; }
+  else if (e.pointerId === steerId) { S.bat.ty += (e.clientY - steerLastY) / scale * CONFIG.bat.touchGain; steerLastY = e.clientY; }
 });
 window.addEventListener('pointerup', e => {
   if (e.pointerType === 'mouse' && e.button === 0) releasePing();
@@ -688,13 +846,13 @@ window.addEventListener('resize', resize);
 
 // ---------- simulation
 function updateMoths() {
-  const t = S.t, b = S.bat;
+  const t = S.t, b = S.bat, cfg = CONFIG.moths;
   for (const m of S.moths) {
     if (m.eaten) continue;
-    m.x = m.bx + Math.sin(t * 1.6 + m.ph) * 16;
-    m.y = clamp(m.by + Math.sin(t * 2.2 + m.ph * 1.7) * 24, ceilAt(m.x) + 12, floorAt(m.x) - 12);
-    if (t > m.nextTw) { m.nextTw = t + rand(1.4, 3.6); if (Math.abs(m.x - b.x) < 560) m.twT = t; }
-    if (S.mode === 'play') { const dx = m.x - b.x, dy = m.y - b.y; if (dx * dx + dy * dy < 576) eat(m); }
+    m.x = m.bx + Math.sin(t * cfg.swayX.speed + m.ph) * cfg.swayX.amp;
+    m.y = clamp(m.by + Math.sin(t * cfg.swayY.speed + m.ph * 1.7) * cfg.swayY.amp, ceilAt(m.x) + cfg.swayWallMargin, floorAt(m.x) - cfg.swayWallMargin);
+    if (t > m.nextTw) { m.nextTw = t + randIn(cfg.twinkleEvery); if (Math.abs(m.x - b.x) < cfg.twinkleRange) m.twT = t; }
+    if (S.mode === 'play') { const dx = m.x - b.x, dy = m.y - b.y; if (dx * dx + dy * dy < cfg.eatRadius * cfg.eatRadius) eat(m); }
   }
 }
 function revealMoths() {
@@ -707,7 +865,7 @@ function revealMoths() {
       const dx = m.x - p.ox, dy = m.y - p.oy;
       if (dx * dx + dy * dy <= lim2) {
         p.seen.add(m.id); m.blipT = S.t; m.blipX = m.x; m.blipY = m.y;
-        if (p.kind === 'player') chirp(5200, 4300, 0.03, 0.03, clamp((m.x - S.bat.x) / 320, -1, 1));
+        if (p.kind === 'player') chirp(5200, 4300, 0.03, 0.03, clamp((m.x - S.bat.x) / CONFIG.audio.panRange, -1, 1));
       }
     }
   }
@@ -717,37 +875,37 @@ function update(dt) {
   const t = S.t, b = S.bat;
   if (S.mode === 'play' || S.mode === 'attract') {
     const play = S.mode === 'play';
-    if (!play && S.cam > 30000) { newWorld(); S.attractNext = t; }
-    S.speed = play ? lerp(190, 440, Math.pow(diffAt(S.cam), 0.9)) : 120;
+    if (!play && S.cam > CONFIG.attract.resetX) { newWorld(); S.attractNext = t; }
+    S.speed = play ? mix(CONFIG.bat.flySpeed, Math.pow(diffAt(S.cam), CONFIG.bat.speedCurve)) : CONFIG.attract.speed;
     S.cam += S.speed * dt;
     b.x = S.cam + batOffset();
-    if (play) { const dir = (keys.down ? 1 : 0) - (keys.up ? 1 : 0); if (dir) b.ty += dir * 520 * dt; }
+    if (play) { const dir = (keys.down ? 1 : 0) - (keys.up ? 1 : 0); if (dir) b.ty += dir * CONFIG.bat.keySpeed * dt; }
     else { const ax = b.x + 150; b.ty = (ceilAt(ax) + floorAt(ax)) / 2 + Math.sin(t * 1.1) * 16; }
-    b.ty = clamp(b.ty, 6, WH - 6);
-    b.vy = clamp((b.ty - b.y) * 9, -560, 560);
+    b.ty = clamp(b.ty, CONFIG.bat.edgeMargin, WH - CONFIG.bat.edgeMargin);
+    b.vy = clamp((b.ty - b.y) * CONFIG.bat.followGain, -CONFIG.bat.maxVy, CONFIG.bat.maxVy);
     b.y += b.vy * dt;
     b.flap += dt * (11 + Math.abs(b.vy) * 0.012);
-    genUntil(S.cam + viewW + 900); spawnMoths(); prune();
+    genUntil(S.cam + viewW + CONFIG.world.generateAhead); spawnMoths(); prune();
     if (play) {
       const dm = S.speed * dt / UPM;
       S.dist += dm;
       const blind = t - S.lastPing;
       if (blind > S.maxBlind) S.maxBlind = blind;
-      const m = Math.min(5, 1 + Math.floor(blind / 1.5));
+      const m = Math.min(CONFIG.score.multMax, 1 + Math.floor(blind / CONFIG.score.multInterval));
       if (m > S.mult) { S.mult = m; multUp(m); }
       S.score += dm * S.mult;
-      S.energy = Math.min(100, S.energy + 6.5 * dt);
-      if (S.charging) S.charge = Math.min(1, (t - S.chargeStart) / 0.8);
+      S.energy = Math.min(CONFIG.energy.max, S.energy + CONFIG.energy.regen * dt);
+      if (S.charging) S.charge = Math.min(1, (t - S.chargeStart) / CONFIG.sonar.chargeTime);
       const hit = collide(b);
       if (hit) die(hit);
-    } else if (t >= S.attractNext) { emitPing(0.55, { kind: 'attract', life: 3.4 }); S.attractNext = t + 1.3; }
+    } else if (t >= S.attractNext) { emitPing(CONFIG.attract.pingCharge, { kind: 'attract', life: CONFIG.attract.pingLife }); S.attractNext = t + CONFIG.attract.pingEvery; }
   } else {
-    S.speed *= Math.pow(0.03, dt);
+    S.speed *= Math.pow(CONFIG.death.slowdown, dt);
     S.cam += S.speed * dt; b.x += S.speed * dt;
-    b.vy += 900 * dt; b.y += b.vy * dt;
+    b.vy += CONFIG.death.gravity * dt; b.y += b.vy * dt;
     const fl = floorAt(b.x) - 4;
     if (b.y > fl) { b.y = fl; b.vy = 0; }
-    if (S.mode === 'dying' && t - S.deathT > 1.5) showOver();
+    if (S.mode === 'dying' && t - S.deathT > CONFIG.death.delay) showOver();
   }
   S.shake *= Math.pow(0.002, dt);
   updateMoths();
@@ -863,7 +1021,7 @@ function drawBat() {
 }
 function drawCharge(px) {
   if (!S.charging || S.mode !== 'play') return;
-  const b = S.bat, low = S.energy < 10, c = Math.min(S.charge, maxCharge());
+  const b = S.bat, low = S.energy < CONFIG.energy.pingBase, c = Math.min(S.charge, maxCharge());
   ctx.globalAlpha = 0.18; ctx.strokeStyle = low ? NEAR : BONE; ctx.lineWidth = px;
   ctx.beginPath(); ctx.arc(b.x, b.y, 46, 0, TAU); ctx.stroke();
   ctx.globalAlpha = 0.9; ctx.lineWidth = 2 * px; ctx.strokeStyle = low ? NEAR : echoCol(lerp(60, 560, c));
@@ -913,7 +1071,7 @@ function render() {
 // ---------- HUD
 const H = {
   score: $('score'), dist: $('dist'), moths: $('moths'), blind: $('blind'), blindWrap: $('blindWrap'),
-  pips: Array.from(document.querySelectorAll('#pips i')), fill: $('energyFill'), cost: $('costMark'),
+  pips: Array.from({ length: CONFIG.score.multMax - 1 }, () => $('pips').appendChild(document.createElement('i'))), fill: $('energyFill'), cost: $('costMark'),
   echo: $('echoMs'), echoWrap: $('echoWrap')
 };
 const hc = {};
@@ -932,19 +1090,19 @@ function hud() {
     H.blindWrap.classList.toggle('hot', S.mult >= 3);
     H.pips.forEach((p, i) => p.classList.toggle('on', S.mult >= i + 2));
   }
-  const prog = S.mult >= 5 ? 0 : (blind % 1.5) / 1.5;
+  const prog = S.mult >= CONFIG.score.multMax ? 0 : (blind % CONFIG.score.multInterval) / CONFIG.score.multInterval;
   H.pips.forEach((p, i) => p.style.setProperty('--p', (i === S.mult - 1 ? prog * 100 : 0).toFixed(1) + '%'));
-  H.fill.style.transform = `scaleX(${(S.energy / 100).toFixed(3)})`;
-  H.fill.classList.toggle('low', S.energy < 22);
+  H.fill.style.transform = `scaleX(${(S.energy / CONFIG.energy.max).toFixed(3)})`;
+  H.fill.classList.toggle('low', S.energy < CONFIG.energy.lowWarning);
   if (S.charging) {
     const c = Math.min(S.charge, maxCharge());
-    const cost = S.energy < 10 ? S.energy : 10 + 24 * c;
-    H.cost.style.left = (S.energy - cost).toFixed(2) + '%';
-    H.cost.style.width = cost.toFixed(2) + '%';
+    const cost = S.energy < CONFIG.energy.pingBase ? S.energy : pingCost(c), pct = 100 / CONFIG.energy.max;
+    H.cost.style.left = ((S.energy - cost) * pct).toFixed(2) + '%';
+    H.cost.style.width = (cost * pct).toFixed(2) + '%';
     H.cost.hidden = false;
   } else if (!H.cost.hidden) H.cost.hidden = true;
   put('e', H.echo, S.echoMs == null ? '--' : S.echoMs.toFixed(1));
-  H.echoWrap.classList.toggle('danger', S.echoNear < 85);
+  H.echoWrap.classList.toggle('danger', S.echoNear < CONFIG.sonar.dangerEcho);
   pingBtn.style.setProperty('--c', S.charging ? Math.min(S.charge, maxCharge()).toFixed(3) : '0');
 }
 
@@ -964,9 +1122,10 @@ function boot(data) {
   newWorld();
   S.mode = 'attract'; S.attractNext = 0;
   S.bat.x = batOffset();
-  genUntil(viewW + 900);
+  genUntil(viewW + CONFIG.world.generateAhead);
   for (let i = 0; i < 75; i++) update(1 / 60);
   renderBest();
+  $('ruleMult').textContent = `每安靜 ${CONFIG.score.multInterval} 秒倍率加一，最高 ×${CONFIG.score.multMax}。一開口就歸零。`;
   setUI('attract');
   render();
   last = performance.now();
