@@ -1,0 +1,981 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>盲飛蝙蝠</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=LXGW+WenKai+TC:wght@400;700&display=swap">
+<style>
+:root{
+  /* Layout: full-bleed sonar canvas; UI lives in the gutters; the title stands vertical at the right edge like a cave marker */
+  --ink:#0b0a12;
+  --bone:#ece5d3;
+  --dim:#948da3;
+  --near:#ff6a4d;
+  --mid:#f455d6;
+  --far:#8473ff;
+  --moth:#ffc565;
+  --line:rgba(236,229,211,.18);
+  --line-strong:rgba(236,229,211,.45);
+  --f-display:"LXGW WenKai TC","PingFang TC","Microsoft JhengHei","Noto Serif TC",serif;
+  --f-body:"LXGW WenKai TC","PingFang TC","Microsoft JhengHei",sans-serif;
+  --f-mono:"DM Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+html{height:100%;box-sizing:border-box;background:var(--ink)}
+*,*::before,*::after{box-sizing:border-box}
+body{height:100%;margin:0;background:var(--ink);color:var(--bone);font-family:var(--f-body);font-size:15px;line-height:1.6;overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
+#app{position:relative;height:100%;overflow:hidden}
+#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+
+.scrim{position:absolute;inset:0;pointer-events:none}
+.scrim.left{background:linear-gradient(90deg,rgba(11,10,18,.93) 0%,rgba(11,10,18,.74) 34%,rgba(11,10,18,0) 66%),linear-gradient(0deg,rgba(11,10,18,.6) 0%,rgba(11,10,18,0) 40%)}
+.scrim.right{background:linear-gradient(270deg,rgba(11,10,18,.93) 0%,rgba(11,10,18,.74) 32%,rgba(11,10,18,0) 62%),linear-gradient(0deg,rgba(11,10,18,.5) 0%,rgba(11,10,18,0) 40%)}
+
+.ui{position:absolute;inset:0;display:flex;flex-direction:column;gap:8px;padding-block:12px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));pointer-events:none}
+.top{display:flex;align-items:flex-start;gap:20px;min-height:38px}
+.stage{position:relative;flex:1;min-height:0}
+
+/* HUD */
+.hud-l{display:flex;flex-direction:column;gap:5px;min-width:0}
+.score{display:flex;align-items:center;gap:10px;font-family:var(--f-mono);font-weight:500;font-size:clamp(1.5rem,3.2vw,2.2rem);line-height:1;font-variant-numeric:tabular-nums}
+.mult{font-size:.48em;line-height:1;padding:.32em .5em .3em;border:1px solid var(--line-strong);border-radius:3px;color:var(--dim);transform-origin:left center}
+.mult.on{background:var(--moth);border-color:var(--moth);color:var(--ink)}
+.mult.bump{animation:bump .4s ease-out}
+@keyframes bump{0%{transform:scale(1.45)}100%{transform:scale(1)}}
+.sub{display:flex;gap:12px;font-family:var(--f-mono);font-size:.78rem;color:var(--dim);font-variant-numeric:tabular-nums}
+.sub b{color:var(--bone);font-weight:500}
+.blind{display:flex;align-items:center;gap:8px;font-size:.78rem;color:var(--dim)}
+.blind .v{font-family:var(--f-mono);color:var(--bone);font-variant-numeric:tabular-nums;min-width:2.6em;text-align:right}
+.blind.hot .v{color:var(--moth)}
+.pips{display:flex;gap:3px}
+.pips i{display:block;width:16px;height:4px;background:linear-gradient(90deg,var(--moth) var(--p,0%),var(--line) var(--p,0%))}
+.pips i.on{background:var(--moth)}
+
+.hud-r{display:flex;flex-direction:column;align-items:flex-end;gap:6px;margin-left:auto;font-size:.78rem;color:var(--dim)}
+.meter{display:flex;align-items:center;gap:8px}
+.bar{position:relative;width:clamp(96px,15vw,180px);height:8px;background:var(--line);overflow:hidden}
+.bar .fill{position:absolute;inset:0;background:var(--bone);transform-origin:left center}
+.bar .fill.low{background:var(--near)}
+.bar .cost{position:absolute;top:0;bottom:0;background:var(--near);opacity:.9}
+.bar.flash{animation:flash .5s steps(2) 2}
+@keyframes flash{50%{outline:2px solid var(--near);outline-offset:2px}}
+.echo{display:flex;align-items:baseline;gap:6px}
+.echo .v{font-family:var(--f-mono);color:var(--bone);font-variant-numeric:tabular-nums;font-size:.95rem}
+.echo.danger .v{color:var(--near)}
+.unit{font-family:var(--f-mono);font-size:.72rem}
+
+.icon-btn{margin-left:auto;flex:none;pointer-events:auto;width:38px;height:38px;border-radius:50%;border:1px solid var(--line-strong);background:rgba(11,10,18,.55);color:var(--bone);display:grid;place-items:center;cursor:pointer;padding:0}
+.hud-r:not([hidden]) + .icon-btn{margin-left:0}
+.icon-btn:hover{border-color:var(--bone)}
+.icon-btn:focus-visible{outline:2px solid var(--far);outline-offset:3px}
+.icon-btn.muted .waves,.icon-btn:not(.muted) .x{display:none}
+
+/* overlays */
+.overlay{position:absolute;inset:0;display:flex;flex-direction:column;overflow-y:auto;pointer-events:auto;scrollbar-width:none}
+.overlay::-webkit-scrollbar{display:none}
+.panel{margin-top:auto;max-width:31rem;width:100%;display:flex;flex-direction:column;gap:16px;padding-bottom:4px}
+#over .panel{margin-left:auto;max-width:27rem}
+
+.title{position:absolute;top:0;right:0;margin:0;writing-mode:vertical-rl;font-family:var(--f-display);font-weight:700;font-size:clamp(4rem,17vh,12rem);line-height:1;letter-spacing:.06em;color:var(--bone);text-shadow:0 0 48px rgba(132,115,255,.45)}
+.title-sub{position:absolute;top:.5rem;right:calc(clamp(4rem,17vh,12rem) + 14px);margin:0;writing-mode:vertical-rl;font-family:var(--f-mono);font-size:.7rem;letter-spacing:.45em;color:var(--dim)}
+
+.kicker{margin:0;font-size:.8rem;letter-spacing:.22em;color:var(--dim)}
+.lead{margin:0;font-size:1.18rem;line-height:1.7;max-width:24em;text-wrap:balance}
+.rules{list-style:none;margin:0;padding:0;display:grid;gap:9px;font-size:.92rem;line-height:1.55}
+.rules li{display:grid;grid-template-columns:2.8em minmax(0,1fr);gap:10px}
+.rules .k{color:var(--moth);font-weight:700;letter-spacing:.08em}
+kbd{font-family:var(--f-mono);font-size:.82em;padding:0 .4em;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:3px;margin:0 .1em;white-space:nowrap}
+.legend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;font-size:.8rem;color:var(--dim)}
+.ramp{display:block;width:96px;height:6px;background:linear-gradient(90deg,var(--near),var(--mid),var(--far))}
+.legend .sep{margin-left:6px}
+.moth-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--moth);box-shadow:0 0 10px var(--moth);margin-left:10px}
+.note{margin:0;font-size:.8rem;color:var(--dim)}
+.portrait-note{display:none}
+@media (orientation:portrait) and (pointer:coarse){.portrait-note{display:block}}
+
+.actions{display:flex;flex-wrap:wrap;align-items:center;gap:14px 20px;margin-top:4px}
+.btn{position:relative;pointer-events:auto;appearance:none;border:0;cursor:pointer;font-family:var(--f-display);font-weight:700;font-size:1.25rem;letter-spacing:.32em;padding:.5em .95em .55em 1.3em;color:var(--ink);background:var(--bone);border-radius:999px;transition:transform .15s ease}
+.btn::after{content:"";position:absolute;inset:0;border-radius:inherit;border:1.5px solid var(--bone);opacity:0;animation:ripple 2.4s ease-out infinite;pointer-events:none}
+@keyframes ripple{0%{transform:scale(1);opacity:.6}100%{transform:scale(1.45,1.9);opacity:0}}
+.btn:hover{transform:translateY(-1px)}
+.btn:active{transform:scale(.97)}
+.btn:focus-visible{outline:2px solid var(--far);outline-offset:5px}
+.best{font-family:var(--f-mono);font-size:.82rem;color:var(--dim);font-variant-numeric:tabular-nums}
+.best b{color:var(--bone);font-weight:500}
+
+.cause{margin:0;font-family:var(--f-display);font-weight:700;font-size:clamp(2rem,5vw,3.1rem);line-height:1.15;letter-spacing:.04em}
+.cause em{font-style:normal;color:var(--near)}
+.flavor{margin:0;color:var(--dim);font-size:.95rem;max-width:26em}
+.final{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 14px}
+.final .lbl{font-size:.85rem;color:var(--dim)}
+.final .big{font-family:var(--f-mono);font-weight:500;font-size:clamp(2.6rem,7vw,3.8rem);line-height:1;font-variant-numeric:tabular-nums}
+.record{align-self:center;font-size:.78rem;letter-spacing:.15em;padding:.2em .6em;background:var(--moth);color:var(--ink);border-radius:3px}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0;padding-top:12px;border-top:1px solid var(--line)}
+.stats div{min-width:0}
+.stats dt{font-size:.75rem;color:var(--dim)}
+.stats dd{margin:0;font-family:var(--f-mono);font-size:1.15rem;font-variant-numeric:tabular-nums}
+.stats dd small{font-size:.7rem;color:var(--dim);margin-left:2px}
+
+.hint{position:absolute;left:0;right:0;bottom:8px;margin:0;text-align:center;font-size:.86rem;color:var(--dim);opacity:0;transition:opacity .6s;pointer-events:none;text-wrap:balance}
+.hint.show{opacity:1}
+
+.ping-btn{position:absolute;right:0;bottom:0;width:80px;height:80px;border-radius:50%;pointer-events:auto;touch-action:none;border:1.5px solid var(--line-strong);background:rgba(11,10,18,.55);color:var(--bone);font-family:var(--f-display);font-weight:700;font-size:1.6rem;display:grid;place-items:center;overflow:hidden;padding:0;cursor:pointer}
+.ping-btn .charge{position:absolute;inset:6px;border-radius:50%;background:var(--far);opacity:.55;transform:scale(var(--c,0))}
+.ping-btn .lbl{position:relative}
+
+@media (max-width:640px){
+  .scrim.left,.scrim.right{background:linear-gradient(0deg,rgba(11,10,18,.95) 0%,rgba(11,10,18,.82) 48%,rgba(11,10,18,0) 82%)}
+  .panel,#over .panel{max-width:none}
+  .title{font-size:clamp(3.4rem,14vh,8rem)}
+  .title-sub{right:calc(clamp(3.4rem,14vh,8rem) + 10px)}
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .lead{font-size:1.05rem}
+}
+@media (max-height:520px){
+  body{font-size:13px}
+  .panel{gap:10px}
+  .lead{font-size:1rem}
+  .rules{gap:4px;font-size:.85rem}
+  .title{font-size:clamp(3rem,26vh,7rem)}
+  .title-sub{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  .btn::after{animation:none}
+  .mult.bump{animation:none}
+}
+</style>
+
+<div id="app">
+  <canvas id="cv" aria-label="遊戲畫面"></canvas>
+  <div class="scrim left" id="scrim"></div>
+  <div class="ui">
+    <header class="top">
+      <div class="hud-l" id="hudL" hidden>
+        <div class="score"><span id="score">0</span><span class="mult" id="mult">×1</span></div>
+        <div class="sub"><span><b id="dist">0 m</b></span><span>飛蛾 <b id="moths">0</b></span></div>
+        <div class="blind" id="blindWrap"><span>盲飛</span><span class="v" id="blind">0.0</span><span class="unit">s</span><span class="pips" id="pips"><i></i><i></i><i></i><i></i></span></div>
+      </div>
+      <div class="hud-r" id="hudR" hidden>
+        <div class="meter"><span>聲能</span><div class="bar" id="bar"><div class="fill" id="energyFill"></div><div class="cost" id="costMark" hidden></div></div></div>
+        <div class="echo" id="echoWrap"><span>最近回聲</span><span class="v" id="echoMs">--</span><span class="unit">ms</span></div>
+      </div>
+      <button id="mute" class="icon-btn" type="button" aria-label="切換聲音">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><g class="waves" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M16 9.5a3.5 3.5 0 0 1 0 5"/><path d="M18.6 7a7 7 0 0 1 0 10"/></g><g class="x" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M16.5 9.5l5 5M21.5 9.5l-5 5"/></g></svg>
+      </button>
+    </header>
+
+    <main class="stage">
+      <section id="start" class="overlay" aria-labelledby="ttl">
+        <h1 class="title" id="ttl">盲飛</h1>
+        <p class="title-sub" aria-hidden="true">ECHO FLIGHT</p>
+        <div class="panel">
+          <p class="kicker">回聲定位 · 洞穴夜航</p>
+          <p class="lead">洞裡伸手不見五指。你是一隻蝙蝠，只能靠自己的叫聲，聽出牆在哪裡。</p>
+          <ul class="rules">
+            <li><span class="k">移動</span><span>滑鼠上下、<kbd>↑</kbd><kbd>↓</kbd>，或手指在畫面上拖曳</span></li>
+            <li><span class="k">發聲</span><span>按住 <kbd>空白鍵</kbd> 或滑鼠左鍵蓄力，放開送出聲波（手機用右下角「聲」鈕）。蓄得越久頻率越低、傳得越遠，也越耗聲能。</span></li>
+            <li><span class="k">倍率</span><span>每安靜 1.5 秒倍率加一，最高 ×5。一開口就歸零。</span></li>
+            <li><span class="k">飛蛾</span><span>黑暗中偶爾閃一下的琥珀色小點，吃到補聲能、加分。</span></li>
+          </ul>
+          <div class="legend"><span>近</span><i class="ramp"></i><span>遠</span><span class="sep">回聲顏色代表距離</span><span class="moth-dot"></span><span>飛蛾</span></div>
+          <p class="note portrait-note">手機橫放，前方視野更寬。</p>
+          <div class="actions"><button id="go" class="btn" type="button">起飛</button><span class="best" id="bestStart"></span></div>
+        </div>
+      </section>
+
+      <section id="over" class="overlay" hidden aria-live="polite">
+        <div class="panel">
+          <p class="kicker" id="overKicker"></p>
+          <h2 class="cause" id="cause"></h2>
+          <p class="flavor" id="flavor"></p>
+          <div class="final"><span class="lbl">總分</span><span class="big" id="fScore">0</span><span class="record" id="record" hidden>新紀錄</span></div>
+          <dl class="stats">
+            <div><dt>距離</dt><dd><span id="fDist">0</span><small>m</small></dd></div>
+            <div><dt>飛蛾</dt><dd id="fMoth">0</dd></div>
+            <div><dt>最長盲飛</dt><dd><span id="fBlind">0.0</span><small>s</small></dd></div>
+            <div><dt>發聲</dt><dd><span id="fPing">0</span><small>次</small></dd></div>
+          </dl>
+          <div class="actions"><button id="again" class="btn" type="button">再飛一次</button><span class="best">最佳 <b id="fBest">0</b></span></div>
+          <p class="note">也可以按 <kbd>Enter</kbd> 或 <kbd>空白鍵</kbd> 重來</p>
+        </div>
+      </section>
+
+      <p class="hint" id="hint"></p>
+      <button id="pingBtn" class="ping-btn" type="button" hidden aria-label="按住蓄力，放開發聲"><span class="charge"></span><span class="lbl">聲</span></button>
+    </main>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d');
+const rs = getComputedStyle(document.documentElement);
+const tok = (n, f) => (rs.getPropertyValue(n) || '').trim() || f;
+const INK = tok('--ink', '#0b0a12'), BONE = tok('--bone', '#ece5d3'), MOTH = tok('--moth', '#ffc565'), NEAR = tok('--near', '#ff6a4d');
+
+const WH = 600, SEG = 20, UPM = 40, BAT_R = 9, TAU = Math.PI * 2;
+const reduceMotion = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const rand = (a, b) => a + Math.random() * (b - a);
+
+// echo colour: near = coral, far = violet
+const PAL = [];
+for (let i = 0; i < 48; i++) { const u = i / 47; PAL.push(`hsl(${((370 - 120 * u) % 360).toFixed(1)}, ${(100 - 15 * u).toFixed(1)}%, ${(63 + 5 * u).toFixed(1)}%)`); }
+const echoCol = d => PAL[Math.round(clamp((d - 40) / 520, 0, 1) * 47)];
+
+const CAUSE = { ceil: ['撞上', '洞頂'], stal: ['撞上', '鐘乳石'], floor: ['擦到', '洞底'], mite: ['撞上', '石筍'], rock: ['撞上', '岩塊'] };
+
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+};
+let best = +store.get('mangfei-best') || 0;
+let runs = 0;
+
+const S = { mode: 'attract', t: 0, speed: 120, attractNext: 0, shake: 0, charging: false, charge: 0, chargeStart: 0, echoNear: Infinity, echoMs: null, mult: 1, energy: 100 };
+
+// ---------- viewport
+let dpr = 1, sw = 1, sh = 1, scale = 1, offY = 0, viewW = 520;
+const batOffset = () => S.mode === 'attract' ? viewW * 0.6 : clamp(viewW * 0.24, 90, 340);
+let dust = [];
+function initDust() {
+  dust = [];
+  const n = reduceMotion ? 0 : 46;
+  for (let i = 0; i < n; i++) dust.push({ x: Math.random() * viewW, y: Math.random() * WH, z: rand(0.12, 0.6), a: rand(0.04, 0.13), s: rand(0.7, 1.7) });
+}
+function resize() {
+  const r = cv.getBoundingClientRect();
+  sw = Math.max(1, r.width); sh = Math.max(1, r.height);
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.round(sw * dpr); cv.height = Math.round(sh * dpr);
+  if (sw / sh < 520 / WH) { scale = sw / 520; offY = (sh - WH * scale) / 2; }
+  else { scale = sh / WH; offY = 0; }
+  viewW = sw / scale;
+  initDust();
+}
+
+// ---------- cave
+function newWorld() {
+  S.base = -60; S.ceil = []; S.flo = []; S.cT = []; S.fT = [];
+  S.rocks = []; S.moths = []; S.pings = []; S.popups = []; S.sparks = [];
+  S.gen = { center: 300, cv: 0, gap: 430, phase: Math.random() * 100, next: 22, spC: [], spF: [] };
+  S.cam = 0; S.nextMothX = 760; S.mothId = 0; S.rockId = 0;
+  S.bat = { x: 0, y: 300, vy: 0, ty: 300, flap: 0 };
+}
+const diffAt = x => clamp((x / UPM - 40) / 1400, 0, 1);
+
+function spike(gap, d) {
+  const w = Math.round(rand(3, 6)), h = gap * rand(0.38, 0.78), a = [];
+  for (let k = -w; k <= w; k++) { const t = 1 - Math.abs(k) / (w + 0.6); a.push(h * Math.pow(t, 1.35) + rand(-4, 4)); }
+  return a;
+}
+function placeRock(x, g, d, minPass) {
+  const top = g.center - g.gap / 2, bot = g.center + g.gap / 2;
+  const r = rand(15, 28) * (g.gap > 260 ? 1.25 : 1);
+  if (g.gap - 2 * r - 12 < minPass) return;
+  let y = rand(top + r + 6, bot - r - 6);
+  if (Math.max((y - r) - top, bot - (y + r)) < minPass + 8) y = Math.random() < 0.5 ? top + r + 6 : bot - r - 6;
+  const n = 9, pts = [], a0 = Math.random() * TAU;
+  for (let k = 0; k < n; k++) { const a = a0 + k / n * TAU, rr = r * rand(0.78, 1.12); pts.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr]); }
+  S.rocks.push({ id: ++S.rockId, x, y, r, pts });
+}
+function genSample() {
+  const g = S.gen, i = S.base + S.ceil.length, x = i * SEG, d = diffAt(x);
+  const gapT = lerp(420, 165, Math.pow(d, 0.8));
+  const wob = Math.sin(x * 0.0035 + g.phase) * 0.16 + Math.sin(x * 0.0011 + g.phase * 2.3) * 0.1;
+  g.gap += (gapT * (1 + wob) - g.gap) * 0.08;
+  const lim = lerp(2.5, 5, d);
+  g.cv = clamp((g.cv + (Math.random() - 0.5) * lerp(0.7, 1.9, d)) * 0.95, -lim, lim);
+  if (x > 480) g.center += g.cv;
+  const half = g.gap / 2, lo = half + 22, hi = WH - half - 22;
+  if (g.center < lo) { g.center = lo; g.cv = Math.abs(g.cv) * 0.5; }
+  if (g.center > hi) { g.center = hi; g.cv = -Math.abs(g.cv) * 0.5; }
+  const jit = lerp(7, 15, d);
+  let c = g.center - half + (Math.random() - 0.5) * jit;
+  let f = g.center + half + (Math.random() - 0.5) * jit;
+  const sc = g.spC.length ? g.spC.shift() : 0, sf = g.spF.length ? g.spF.shift() : 0;
+  c += sc; f -= sf;
+  const minPass = lerp(120, 66, d);
+  if (f - c < minPass) {
+    if (sc > 0 && sf <= 0) c = f - minPass;
+    else if (sf > 0 && sc <= 0) f = c + minPass;
+    else { const m = (c + f) / 2; c = m - minPass / 2; f = m + minPass / 2; }
+  }
+  S.ceil.push(c); S.flo.push(f);
+  S.cT.push(sc > 14 ? 'stal' : 'ceil'); S.fT.push(sf > 14 ? 'mite' : 'floor');
+  if (x > 640 && !g.spC.length && !g.spF.length && --g.next <= 0) {
+    const r = Math.random(), pr = d > 0.12 ? 0.28 : 0.1;
+    if (r < pr) placeRock(x + SEG * 3, g, d, minPass);
+    else {
+      if (r < pr + (1 - pr) / 2) g.spC = spike(g.gap, d); else g.spF = spike(g.gap, d);
+      if (d > 0.35 && Math.random() < 0.35) {
+        const pad = new Array(Math.round(lerp(9, 7, d))).fill(0).concat(spike(g.gap, d));
+        if (g.spC.length) g.spF = pad; else g.spC = pad;
+      }
+    }
+    g.next = Math.round(lerp(24, 9, d) + Math.random() * lerp(18, 8, d));
+  }
+}
+function genUntil(xmax) { while ((S.base + S.ceil.length) * SEG <= xmax) genSample(); }
+function prune() {
+  const lim = S.cam - 1000;
+  let k = 0;
+  while ((S.base + k + 1) * SEG < lim && k < S.ceil.length - 4) k++;
+  if (k > 0) { S.ceil.splice(0, k); S.flo.splice(0, k); S.cT.splice(0, k); S.fT.splice(0, k); S.base += k; }
+  while (S.rocks.length && S.rocks[0].x < lim) S.rocks.shift();
+  while (S.moths.length && S.moths[0].bx < S.cam - 300) S.moths.shift();
+}
+function wallAt(arr, x, def) {
+  const fi = x / SEG - S.base, i = Math.floor(fi);
+  if (i < 0 || i >= arr.length - 1) return def;
+  return arr[i] + (arr[i + 1] - arr[i]) * (fi - i);
+}
+const ceilAt = x => wallAt(S.ceil, x, 0);
+const floorAt = x => wallAt(S.flo, x, WH);
+
+function spawnMoths() {
+  while (S.nextMothX < S.cam + viewW + 500) {
+    const x = S.nextMothX, c = ceilAt(x), f = floorAt(x);
+    if (f - c > 80) {
+      const y = rand(c + 32, f - 32);
+      let ok = true;
+      for (const k of S.rocks) if (Math.hypot(k.x - x, k.y - y) < k.r + 34) { ok = false; break; }
+      if (ok) S.moths.push({ id: ++S.mothId, bx: x, by: y, x, y, ph: Math.random() * TAU, blipT: -99, blipX: 0, blipY: 0, twT: -99, nextTw: S.t + rand(0.5, 3), eaten: false });
+    }
+    S.nextMothX += rand(280, 640) * lerp(1, 1.25, diffAt(x));
+  }
+}
+
+// ---------- sonar
+function raySeg(ox, oy, dx, dy, ax, ay, bx, by) {
+  const ex = bx - ax, ey = by - ay, den = dx * ey - dy * ex;
+  if (den > -1e-9 && den < 1e-9) return Infinity;
+  const fx = ax - ox, fy = ay - oy;
+  const t = (fx * ey - fy * ex) / den, u = (fx * dy - fy * dx) / den;
+  return (t > 0.5 && u >= 0 && u <= 1) ? t : Infinity;
+}
+function cast(ox, oy, R, n) {
+  const segs = [];
+  const i0 = Math.max(0, Math.floor((ox - R) / SEG) - S.base);
+  const i1 = Math.min(S.ceil.length - 1, Math.ceil((ox + R) / SEG) - S.base);
+  for (let i = i0; i < i1; i++) {
+    const ax = (i + S.base) * SEG, bx = ax + SEG;
+    segs.push({ ax, ay: S.ceil[i], bx, by: S.ceil[i + 1], g: 'c' });
+    segs.push({ ax, ay: S.flo[i], bx, by: S.flo[i + 1], g: 'f' });
+  }
+  for (const k of S.rocks) {
+    if (Math.abs(k.x - ox) > R + 50) continue;
+    const P = k.pts;
+    for (let j = 0; j < P.length; j++) { const A = P[j], B = P[(j + 1) % P.length]; segs.push({ ax: A[0], ay: A[1], bx: B[0], by: B[1], g: 'r' + k.id }); }
+  }
+  const hits = new Array(n);
+  for (let k = 0; k < n; k++) {
+    const a = k / n * TAU, dx = Math.cos(a), dy = Math.sin(a);
+    let bt = R, bs = null;
+    for (let s = 0; s < segs.length; s++) {
+      const q = segs[s], tt = raySeg(ox, oy, dx, dy, q.ax, q.ay, q.bx, q.by);
+      if (tt < bt) { bt = tt; bs = q; }
+    }
+    hits[k] = bs ? { x: ox + dx * bt, y: oy + dy * bt, d: bt, g: bs.g } : null;
+  }
+  return hits;
+}
+function emitPing(c, o) {
+  const b = S.bat, kind = o.kind;
+  const R = o.R || lerp(230, 760, c);
+  const n = o.n || Math.round(lerp(150, 380, c));
+  const life = o.life || lerp(2.1, 3.4, c);
+  const ws = o.ws || 950;
+  const hits = cast(b.x, b.y, R, n);
+  S.pings.push({ ox: b.x, oy: b.y, t0: S.t, R, n, hits, life, ws, c, kind, seen: new Set() });
+  if (kind !== 'player' && kind !== 'free') return;
+  S.lastPing = S.t;
+  if (kind === 'player') { S.pingCount++; S.mult = 1; }
+  let near = Infinity, nc = null, nf = null, nr = null;
+  for (const h of hits) {
+    if (!h) continue;
+    if (h.d < near) near = h.d;
+    if (h.g === 'c') { if (!nc || h.d < nc.d) nc = h; }
+    else if (h.g === 'f') { if (!nf || h.d < nf.d) nf = h; }
+    else if (!nr || h.d < nr.d) nr = h;
+  }
+  S.echoNear = near;
+  S.echoMs = isFinite(near) ? 2 * (near / UPM) / 343 * 1000 : null;
+  // the call itself: longer charge = lower, longer sweep
+  const f0 = lerp(3400, 1500, c), f1 = lerp(1500, 420, c), dur = lerp(0.07, 0.2, c);
+  chirp(f0, f1, dur, lerp(0.14, 0.2, c));
+  // echoes return in sync with the visual wave; ceiling sounds higher, floor lower
+  const ech = (h, pf) => {
+    if (!h) return;
+    const v = 0.1 * Math.pow(1 - h.d / R, 1.4);
+    if (v > 0.006) chirp(f0 * pf, f1 * pf, dur * 0.8, v, clamp((h.x - b.x) / 320, -1, 1), h.d / ws);
+  };
+  ech(nc, 1.3); ech(nf, 0.76); ech(nr, 1);
+}
+
+// ---------- audio
+let actx = null, master = null, noiseBuf = null;
+let muted = store.get('mangfei-mute') === '1';
+function initAudio() {
+  try {
+    if (!actx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      actx = new AC();
+      master = actx.createGain(); master.gain.value = muted ? 0 : 0.7; master.connect(actx.destination);
+      noiseBuf = actx.createBuffer(1, Math.floor(actx.sampleRate * 0.6), actx.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      startAmbience();
+    }
+    if (actx.state === 'suspended') actx.resume();
+  } catch (e) { actx = null; }
+}
+function route(node, pan) {
+  if (pan && actx.createStereoPanner) { const p = actx.createStereoPanner(); p.pan.value = pan; node.connect(p); p.connect(master); }
+  else node.connect(master);
+}
+function chirp(f0, f1, dur, vol, pan = 0, delay = 0, type = 'sine') {
+  if (!actx || muted) return;
+  try {
+    const t = actx.currentTime + delay + 0.005;
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.01, dur * 0.2));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); route(g, pan);
+    o.start(t); o.stop(t + dur + 0.03);
+  } catch (e) {}
+}
+function noise(dur, vol, freq, q = 1) {
+  if (!actx || muted) return;
+  try {
+    const t = actx.currentTime;
+    const s = actx.createBufferSource(); s.buffer = noiseBuf;
+    const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
+    const g = actx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(g); route(g, 0);
+    s.start(t); s.stop(t + dur);
+  } catch (e) {}
+}
+function startAmbience() {
+  const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 160;
+  const g = actx.createGain(); g.gain.value = 0.05;
+  lp.connect(g); g.connect(master);
+  [55, 55.8, 82.4].forEach(f => { const o = actx.createOscillator(); o.type = 'triangle'; o.frequency.value = f; o.connect(lp); o.start(); });
+  const drip = () => {
+    if (actx && !muted && !document.hidden) {
+      const f = rand(1300, 2300), p = rand(-0.8, 0.8);
+      chirp(f, f * 0.55, 0.14, 0.035, p);
+      chirp(f * 0.98, f * 0.5, 0.12, 0.012, -p, 0.2);
+    }
+    setTimeout(drip, rand(1800, 5200));
+  };
+  setTimeout(drip, 1500);
+}
+const muteBtn = $('mute');
+function syncMute() { muteBtn.classList.toggle('muted', muted); muteBtn.setAttribute('aria-pressed', String(muted)); muteBtn.title = muted ? '開啟聲音（M）' : '關閉聲音（M）'; }
+function toggleMute() {
+  muted = !muted; store.set('mangfei-mute', muted ? '1' : '0'); syncMute();
+  if (!muted) initAudio();
+  if (master) master.gain.setTargetAtTime(muted ? 0 : 0.7, actx.currentTime, 0.04);
+}
+muteBtn.addEventListener('click', () => { toggleMute(); muteBtn.blur(); });
+syncMute();
+
+// ---------- game flow
+const pingBtn = $('pingBtn'), hint = $('hint');
+let touchMode = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+let hintTimer = 0;
+function showHint(text, ms) {
+  hint.textContent = text; hint.classList.add('show');
+  clearTimeout(hintTimer); hintTimer = setTimeout(() => hint.classList.remove('show'), ms);
+}
+function syncPingBtn() { pingBtn.hidden = !(touchMode && S.mode === 'play'); }
+function setUI(m) {
+  $('start').hidden = m !== 'attract';
+  $('over').hidden = m !== 'over';
+  const scrim = $('scrim');
+  scrim.hidden = m === 'play' || m === 'dying';
+  scrim.className = 'scrim ' + (m === 'over' ? 'right' : 'left');
+  $('hudL').hidden = $('hudR').hidden = !(m === 'play' || m === 'dying');
+  if (m !== 'play') hint.classList.remove('show');
+  syncPingBtn();
+}
+function renderBest() {
+  const el = $('bestStart'); el.textContent = '';
+  if (best > 0) { el.append('最佳 '); const b = document.createElement('b'); b.textContent = best; el.append(b); }
+}
+function startGame() {
+  if (S.mode === 'play' || S.mode === 'dying') return;
+  initAudio();
+  S.mode = 'play';
+  newWorld();
+  Object.assign(S, { energy: 100, score: 0, dist: 0, mothCount: 0, pingCount: 0, maxBlind: 0, mult: 1, lastPing: S.t, charging: false, charge: 0, echoMs: null, echoNear: Infinity, speed: 190, shake: 0, multHinted: runs > 0 });
+  S.bat.x = batOffset();
+  genUntil(S.cam + viewW + 900); spawnMoths();
+  emitPing(0.8, { kind: 'free' });
+  setUI('play');
+  showHint(touchMode ? '拖曳移動 · 按住右下「聲」蓄力，放開發聲' : '滑鼠上下移動 · 按住左鍵或空白鍵蓄力，放開發聲', 5200);
+  const a = document.activeElement; if (a && a !== document.body && a.blur) a.blur();
+}
+function tryStart(fromKey) {
+  if (S.mode === 'attract') startGame();
+  else if (S.mode === 'over' && (!fromKey || S.t - S.overAt > 0.5)) startGame();
+}
+const maxCharge = () => clamp((S.energy - 10) / 24, 0, 1);
+function beginCharge() {
+  if (S.mode !== 'play' || S.charging) return;
+  initAudio();
+  S.charging = true; S.chargeStart = S.t; S.charge = 0;
+}
+function releasePing() {
+  if (!S.charging) return;
+  S.charging = false;
+  if (S.mode !== 'play') { S.charge = 0; return; }
+  if (S.energy < 10) { fizzle(); S.charge = 0; return; }
+  const c = Math.min(S.charge, maxCharge());
+  S.energy -= 10 + 24 * c; S.charge = 0;
+  emitPing(c, { kind: 'player' });
+}
+function fizzle() {
+  chirp(420, 240, 0.14, 0.05, 0, 0, 'sawtooth');
+  S.popups.push({ x: S.bat.x, y: S.bat.y - 24, text: '聲能不足', col: NEAR, t0: S.t });
+  const bar = $('bar'); bar.classList.remove('flash'); void bar.offsetWidth; bar.classList.add('flash');
+}
+const multEl = $('mult');
+function multUp(m) {
+  multEl.classList.remove('bump'); void multEl.offsetWidth; multEl.classList.add('bump');
+  chirp(520 + m * 120, 760 + m * 170, 0.09, 0.05, 0, 0, 'triangle');
+  S.popups.push({ x: S.bat.x, y: S.bat.y - 26, text: '×' + m, col: MOTH, t0: S.t });
+  if (m === 2 && !S.multHinted) { S.multHinted = true; showHint('安靜越久，倍率越高。開口就歸零。', 2600); }
+}
+function eat(m) {
+  m.eaten = true; S.mothCount++;
+  const pts = 20 * S.mult;
+  S.score += pts;
+  S.energy = Math.min(100, S.energy + 20);
+  S.popups.push({ x: m.x, y: m.y - 14, text: '+' + pts, col: MOTH, t0: S.t });
+  for (let i = 0; i < 12; i++) { const a = rand(0, TAU), v = rand(40, 150); S.sparks.push({ x: m.x, y: m.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t0: S.t, life: rand(0.35, 0.7) }); }
+  chirp(900, 2600, 0.05, 0.06, 0, 0, 'square');
+  chirp(2600, 1300, 0.06, 0.05, 0, 0.05, 'triangle');
+}
+function segDist(px, py, ax, ay, bx, by) {
+  const ex = bx - ax, ey = by - ay;
+  const t = clamp(((px - ax) * ex + (py - ay) * ey) / (ex * ex + ey * ey), 0, 1);
+  const qx = ax + ex * t - px, qy = ay + ey * t - py;
+  return Math.sqrt(qx * qx + qy * qy);
+}
+function typeNear(arr, x, def) { const i = Math.round(x / SEG) - S.base; return arr[i] || def; }
+function collide(b) {
+  const r = BAT_R * 0.8;
+  if (b.y < ceilAt(b.x)) return typeNear(S.cT, b.x, 'ceil');
+  if (b.y > floorAt(b.x)) return typeNear(S.fT, b.x, 'floor');
+  const i0 = Math.max(0, Math.floor((b.x - r) / SEG) - S.base - 1);
+  const i1 = Math.min(S.ceil.length - 1, Math.ceil((b.x + r) / SEG) - S.base + 1);
+  for (let i = i0; i < i1; i++) {
+    const ax = (i + S.base) * SEG, bx = ax + SEG;
+    if (segDist(b.x, b.y, ax, S.ceil[i], bx, S.ceil[i + 1]) < r) return (S.cT[i] === 'stal' || S.cT[i + 1] === 'stal') ? 'stal' : 'ceil';
+    if (segDist(b.x, b.y, ax, S.flo[i], bx, S.flo[i + 1]) < r) return (S.fT[i] === 'mite' || S.fT[i + 1] === 'mite') ? 'mite' : 'floor';
+  }
+  for (const k of S.rocks) {
+    if (Math.abs(k.x - b.x) > 80) continue;
+    const dx = k.x - b.x, dy = k.y - b.y, rr = k.r * 0.88 + r;
+    if (dx * dx + dy * dy < rr * rr) return 'rock';
+  }
+  return null;
+}
+function die(type) {
+  S.mode = 'dying'; S.deathT = S.t; S.cause = type;
+  S.crashX = S.bat.x; S.crashY = S.bat.y;
+  S.charging = false; S.charge = 0; steerId = null;
+  S.shake = reduceMotion ? 0 : 14;
+  S.bat.vy = -140;
+  emitPing(1, { kind: 'death', R: 1500, n: 900, ws: 1500, life: 9 });
+  noise(0.45, 0.5, 220, 0.8);
+  chirp(140, 38, 0.5, 0.35);
+  setUI('dying');
+}
+function flavor() {
+  const d = S.dist, mb = S.maxBlind, pc = S.pingCount;
+  if (d < 50) return '才剛暖身。先送一記蓄滿的聲波，看清楚前面再安靜飛。';
+  if (mb >= 6) return `連續安靜飛了 ${mb.toFixed(1)} 秒，這對耳朵相當有自信。`;
+  if (S.mothCount >= 8) return `吃掉 ${S.mothCount} 隻飛蛾，今晚收穫不錯。`;
+  if (pc > 0 && d / pc < 5) return `平均每 ${(d / pc).toFixed(1)} 公尺就叫一次。試著多相信剛剛聽到的形狀。`;
+  const tips = ['紅色的回聲代表牆就在身邊。', '蓄滿的聲波看得最遠。記住輪廓，然後安靜飛一段，倍率會一路往上加。', '偶爾閃一下的琥珀色小點是飛蛾，不發聲也找得到。', '倍率在開口那一刻歸零，挑對時機再叫。'];
+  return tips[runs % tips.length];
+}
+function showOver() {
+  S.mode = 'over'; S.overAt = S.t; runs++;
+  const score = Math.floor(S.score), isBest = score > best;
+  if (isBest) { best = score; store.set('mangfei-best', String(best)); }
+  const [verb, noun] = CAUSE[S.cause] || CAUSE.ceil;
+  const cause = $('cause'); cause.textContent = verb;
+  const em = document.createElement('em'); em.textContent = noun; cause.append(em);
+  $('overKicker').textContent = `第 ${runs} 次飛行 · 在 ${Math.floor(S.dist)} 公尺處`;
+  $('flavor').textContent = flavor();
+  $('fScore').textContent = score;
+  $('fDist').textContent = Math.floor(S.dist);
+  $('fMoth').textContent = S.mothCount;
+  $('fBlind').textContent = S.maxBlind.toFixed(1);
+  $('fPing').textContent = S.pingCount;
+  $('fBest').textContent = best;
+  $('record').hidden = !(isBest && score > 0);
+  renderBest();
+  setUI('over');
+  setTimeout(() => { try { $('again').focus({ preventScroll: true }); } catch (e) {} }, 60);
+}
+
+// ---------- input
+const keys = { up: false, down: false };
+let steerId = null, steerLastY = 0;
+const toWorldY = cy => { const r = cv.getBoundingClientRect(); return (cy - r.top - offY) / scale; };
+window.addEventListener('keydown', e => {
+  const c = e.code;
+  if (c === 'ArrowUp' || c === 'KeyW') { keys.up = true; e.preventDefault(); }
+  else if (c === 'ArrowDown' || c === 'KeyS') { keys.down = true; e.preventDefault(); }
+  else if (c === 'Space') { e.preventDefault(); if (e.repeat) return; if (S.mode === 'play') beginCharge(); else tryStart(true); }
+  else if (c === 'Enter') { if (S.mode !== 'play') { e.preventDefault(); tryStart(true); } }
+  else if (c === 'KeyM') toggleMute();
+});
+window.addEventListener('keyup', e => {
+  const c = e.code;
+  if (c === 'ArrowUp' || c === 'KeyW') keys.up = false;
+  else if (c === 'ArrowDown' || c === 'KeyS') keys.down = false;
+  else if (c === 'Space') { e.preventDefault(); releasePing(); }
+});
+cv.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse') {
+    if (e.button === 0 && S.mode === 'play') { S.bat.ty = toWorldY(e.clientY); beginCharge(); }
+    return;
+  }
+  touchMode = true; syncPingBtn();
+  steerId = e.pointerId; steerLastY = e.clientY;
+  try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+});
+cv.addEventListener('pointermove', e => {
+  if (S.mode !== 'play') return;
+  if (e.pointerType === 'mouse') S.bat.ty = toWorldY(e.clientY);
+  else if (e.pointerId === steerId) { S.bat.ty += (e.clientY - steerLastY) / scale * 1.4; steerLastY = e.clientY; }
+});
+window.addEventListener('pointerup', e => {
+  if (e.pointerType === 'mouse' && e.button === 0) releasePing();
+  if (e.pointerId === steerId) steerId = null;
+});
+window.addEventListener('pointercancel', e => { if (e.pointerId === steerId) steerId = null; });
+cv.addEventListener('contextmenu', e => e.preventDefault());
+pingBtn.addEventListener('pointerdown', e => {
+  e.preventDefault(); touchMode = true;
+  try { pingBtn.setPointerCapture(e.pointerId); } catch (_) {}
+  beginCharge();
+});
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => pingBtn.addEventListener(ev, () => releasePing()));
+pingBtn.addEventListener('contextmenu', e => e.preventDefault());
+$('go').addEventListener('click', () => tryStart(false));
+$('again').addEventListener('click', () => tryStart(false));
+window.addEventListener('blur', () => { keys.up = keys.down = false; S.charging = false; S.charge = 0; });
+document.addEventListener('visibilitychange', () => {
+  if (!actx) return;
+  try { if (document.hidden) actx.suspend(); else actx.resume(); } catch (e) {}
+});
+window.addEventListener('resize', resize);
+
+// ---------- simulation
+function updateMoths() {
+  const t = S.t, b = S.bat;
+  for (const m of S.moths) {
+    if (m.eaten) continue;
+    m.x = m.bx + Math.sin(t * 1.6 + m.ph) * 16;
+    m.y = clamp(m.by + Math.sin(t * 2.2 + m.ph * 1.7) * 24, ceilAt(m.x) + 12, floorAt(m.x) - 12);
+    if (t > m.nextTw) { m.nextTw = t + rand(1.4, 3.6); if (Math.abs(m.x - b.x) < 560) m.twT = t; }
+    if (S.mode === 'play') { const dx = m.x - b.x, dy = m.y - b.y; if (dx * dx + dy * dy < 576) eat(m); }
+  }
+}
+function revealMoths() {
+  for (const p of S.pings) {
+    const rr = (S.t - p.t0) * p.ws;
+    if (rr > p.R + 60) continue;
+    const lim = Math.min(rr, p.R), lim2 = lim * lim;
+    for (const m of S.moths) {
+      if (m.eaten || p.seen.has(m.id)) continue;
+      const dx = m.x - p.ox, dy = m.y - p.oy;
+      if (dx * dx + dy * dy <= lim2) {
+        p.seen.add(m.id); m.blipT = S.t; m.blipX = m.x; m.blipY = m.y;
+        if (p.kind === 'player') chirp(5200, 4300, 0.03, 0.03, clamp((m.x - S.bat.x) / 320, -1, 1));
+      }
+    }
+  }
+}
+function update(dt) {
+  S.t += dt;
+  const t = S.t, b = S.bat;
+  if (S.mode === 'play' || S.mode === 'attract') {
+    const play = S.mode === 'play';
+    if (!play && S.cam > 30000) { newWorld(); S.attractNext = t; }
+    S.speed = play ? lerp(190, 440, Math.pow(diffAt(S.cam), 0.9)) : 120;
+    S.cam += S.speed * dt;
+    b.x = S.cam + batOffset();
+    if (play) { const dir = (keys.down ? 1 : 0) - (keys.up ? 1 : 0); if (dir) b.ty += dir * 520 * dt; }
+    else { const ax = b.x + 150; b.ty = (ceilAt(ax) + floorAt(ax)) / 2 + Math.sin(t * 1.1) * 16; }
+    b.ty = clamp(b.ty, 6, WH - 6);
+    b.vy = clamp((b.ty - b.y) * 9, -560, 560);
+    b.y += b.vy * dt;
+    b.flap += dt * (11 + Math.abs(b.vy) * 0.012);
+    genUntil(S.cam + viewW + 900); spawnMoths(); prune();
+    if (play) {
+      const dm = S.speed * dt / UPM;
+      S.dist += dm;
+      const blind = t - S.lastPing;
+      if (blind > S.maxBlind) S.maxBlind = blind;
+      const m = Math.min(5, 1 + Math.floor(blind / 1.5));
+      if (m > S.mult) { S.mult = m; multUp(m); }
+      S.score += dm * S.mult;
+      S.energy = Math.min(100, S.energy + 6.5 * dt);
+      if (S.charging) S.charge = Math.min(1, (t - S.chargeStart) / 0.8);
+      const hit = collide(b);
+      if (hit) die(hit);
+    } else if (t >= S.attractNext) { emitPing(0.55, { kind: 'attract', life: 3.4 }); S.attractNext = t + 1.3; }
+  } else {
+    S.speed *= Math.pow(0.03, dt);
+    S.cam += S.speed * dt; b.x += S.speed * dt;
+    b.vy += 900 * dt; b.y += b.vy * dt;
+    const fl = floorAt(b.x) - 4;
+    if (b.y > fl) { b.y = fl; b.vy = 0; }
+    if (S.mode === 'dying' && t - S.deathT > 1.5) showOver();
+  }
+  S.shake *= Math.pow(0.002, dt);
+  updateMoths();
+  revealMoths();
+  for (let i = S.pings.length - 1; i >= 0; i--) { const p = S.pings[i]; if (t - p.t0 > p.R / p.ws + p.life) S.pings.splice(i, 1); }
+  for (const d of dust) { d.x -= S.speed * d.z * dt; if (d.x < -4) { d.x = viewW + 4; d.y = Math.random() * WH; } }
+  for (let i = S.popups.length - 1; i >= 0; i--) if (t - S.popups[i].t0 > 1) S.popups.splice(i, 1);
+  for (let i = S.sparks.length - 1; i >= 0; i--) {
+    const s = S.sparks[i];
+    s.x += s.vx * dt; s.y += s.vy * dt; s.vx *= 0.94; s.vy *= 0.94;
+    if (t - s.t0 > s.life) S.sparks.splice(i, 1);
+  }
+}
+
+// ---------- rendering
+const fade = (ta, life) => ta < 0.08 ? 1 : Math.exp(-(ta - 0.08) / (life * 0.42)) * (1 - ta / life);
+function drawPing(p, px) {
+  const age = S.t - p.t0, rr = age * p.ws, death = p.kind === 'death';
+  if (rr < p.R) {
+    const a = 1 - rr / p.R;
+    ctx.globalAlpha = (death ? 0.4 : 0.22) * a;
+    ctx.strokeStyle = BONE; ctx.lineWidth = 1.4 * px;
+    ctx.beginPath(); ctx.arc(p.ox, p.oy, rr, 0, TAU); ctx.stroke();
+    if (p.c > 0.5 && !death) { ctx.globalAlpha *= 0.5; ctx.beginPath(); ctx.arc(p.ox, p.oy, rr * 0.84, 0, TAU); ctx.stroke(); }
+  }
+  const Hs = p.hits, n = Hs.length, life = p.life, ws = p.ws;
+  const xl = S.cam - 40, xr = S.cam + viewW + 40;
+  ctx.lineWidth = (death ? 1.3 : 1.1) * px;
+  for (let i = 0; i < n; i++) {
+    const h = Hs[i];
+    if (!h || h.x < xl || h.x > xr) continue;
+    const ta = age - h.d / ws;
+    if (ta < 0 || ta > life) continue;
+    const a = fade(ta, life), col = echoCol(h.d);
+    const h2 = Hs[(i + 1) % n];
+    if (h2 && h2.g === h.g) {
+      const ta2 = age - h2.d / ws;
+      if (ta2 >= 0 && ta2 <= life) {
+        const dx = h2.x - h.x, dy = h2.y - h.y;
+        if (dx * dx + dy * dy < 1200) {
+          ctx.globalAlpha = Math.min(a, fade(ta2, life)) * 0.5;
+          ctx.strokeStyle = col;
+          ctx.beginPath(); ctx.moveTo(h.x, h.y); ctx.lineTo(h2.x, h2.y); ctx.stroke();
+        }
+      }
+    }
+    ctx.fillStyle = col;
+    if (ta < 0.22) { ctx.globalAlpha = 0.26 * (1 - ta / 0.22); ctx.beginPath(); ctx.arc(h.x, h.y, 6 * px, 0, TAU); ctx.fill(); }
+    ctx.globalAlpha = a;
+    const s = (ta < 0.1 ? 2.2 : 1.3) * px * (h.d < 90 ? 1.3 : 1);
+    ctx.fillRect(h.x - s, h.y - s, 2 * s, 2 * s);
+  }
+  ctx.globalAlpha = 1;
+}
+function drawMoth(x, y, a, tb) {
+  ctx.fillStyle = MOTH;
+  ctx.globalAlpha = a * 0.22; ctx.beginPath(); ctx.arc(x, y, 10, 0, TAU); ctx.fill();
+  ctx.globalAlpha = a;
+  const w = 4 + Math.sin(tb * 40) * 1.5;
+  ctx.beginPath();
+  ctx.moveTo(x, y); ctx.lineTo(x - w - 2, y - w); ctx.lineTo(x - w, y + 2); ctx.closePath();
+  ctx.moveTo(x, y); ctx.lineTo(x + w + 2, y - w); ctx.lineTo(x + w, y + 2); ctx.closePath();
+  ctx.fill();
+}
+function drawMoths(px) {
+  for (const m of S.moths) {
+    if (m.eaten) continue;
+    const tb = S.t - m.blipT;
+    if (tb < 1.5) drawMoth(m.blipX, m.blipY, tb < 0.1 ? 1 : Math.exp(-(tb - 0.1) / 0.55) * (1 - tb / 1.5), tb);
+    const tt = S.t - m.twT;
+    if (tt < 0.35) { ctx.fillStyle = MOTH; ctx.globalAlpha = 0.34 * (1 - tt / 0.35); ctx.beginPath(); ctx.arc(m.x, m.y, 1.9 * px, 0, TAU); ctx.fill(); }
+  }
+  ctx.globalAlpha = 1;
+}
+function drawSparks(px) {
+  ctx.fillStyle = MOTH;
+  const z = 1.6 * px;
+  for (const s of S.sparks) { ctx.globalAlpha = Math.max(0, 1 - (S.t - s.t0) / s.life); ctx.fillRect(s.x - z, s.y - z, 2 * z, 2 * z); }
+  ctx.globalAlpha = 1;
+}
+function drawBat() {
+  const b = S.bat, dead = S.mode === 'dying' || S.mode === 'over';
+  const w = dead ? 0.2 : Math.sin(b.flap);
+  ctx.save();
+  ctx.translate(b.x, b.y);
+  ctx.rotate(dead ? Math.min(2.6, (S.t - S.deathT) * 4) : clamp(b.vy / 1500, -0.32, 0.32));
+  ctx.globalCompositeOperation = 'lighter';
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 34);
+  g.addColorStop(0, 'rgba(236,229,211,0.10)'); g.addColorStop(1, 'rgba(236,229,211,0)');
+  ctx.fillStyle = g; ctx.globalAlpha = 1;
+  ctx.beginPath(); ctx.arc(0, 0, 34, 0, TAU); ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = BONE; ctx.globalAlpha = dead ? 0.5 : 0.95;
+  for (const sd of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(sd * 2, -2);
+    ctx.lineTo(sd * 9, -7 - w * 7);
+    ctx.lineTo(sd * 19, -3 - w * 12);
+    ctx.quadraticCurveTo(sd * 16, -1 - w * 8, sd * 14, 2 - w * 7);
+    ctx.quadraticCurveTo(sd * 11, -w * 4, sd * 8, 3 - w * 3);
+    ctx.quadraticCurveTo(sd * 5, 1, sd * 2, 4);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.beginPath(); ctx.ellipse(0, 0.5, 3.6, 5.5, 0, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(0, -5, 3, 0, TAU); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-3, -6); ctx.lineTo(-2.4, -10.5); ctx.lineTo(-0.6, -7); ctx.closePath();
+  ctx.moveTo(3, -6); ctx.lineTo(2.4, -10.5); ctx.lineTo(0.6, -7); ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = INK; ctx.globalAlpha = 1;
+  ctx.fillRect(-1.7, -5.7, 1.1, 1.1); ctx.fillRect(0.6, -5.7, 1.1, 1.1);
+  ctx.restore();
+}
+function drawCharge(px) {
+  if (!S.charging || S.mode !== 'play') return;
+  const b = S.bat, low = S.energy < 10, c = Math.min(S.charge, maxCharge());
+  ctx.globalAlpha = 0.18; ctx.strokeStyle = low ? NEAR : BONE; ctx.lineWidth = px;
+  ctx.beginPath(); ctx.arc(b.x, b.y, 46, 0, TAU); ctx.stroke();
+  ctx.globalAlpha = 0.9; ctx.lineWidth = 2 * px; ctx.strokeStyle = low ? NEAR : echoCol(lerp(60, 560, c));
+  ctx.beginPath(); ctx.arc(b.x, b.y, 16 + 30 * c, -Math.PI / 2, -Math.PI / 2 + TAU * Math.max(0.04, c)); ctx.stroke();
+  ctx.font = `500 ${11 * px}px "DM Mono","LXGW WenKai TC",monospace`;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = low ? NEAR : BONE;
+  ctx.fillText(low ? '聲能不足' : `${Math.round(110 - 88 * c)} kHz`, b.x + 52, b.y - 18);
+  ctx.globalAlpha = 1;
+}
+function drawPopups(px) {
+  if (!S.popups.length) return;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = `500 ${13 * px}px "DM Mono","LXGW WenKai TC",monospace`;
+  for (const p of S.popups) { const a = S.t - p.t0; ctx.globalAlpha = Math.max(0, 1 - a); ctx.fillStyle = p.col; ctx.fillText(p.text, p.x, p.y - a * 26); }
+  ctx.globalAlpha = 1;
+}
+function drawCrash(px) {
+  const a = 0.5 + 0.5 * Math.sin((S.t - S.deathT) * 6);
+  ctx.globalAlpha = 0.35 + 0.45 * a; ctx.strokeStyle = NEAR; ctx.lineWidth = 1.6 * px;
+  ctx.beginPath(); ctx.arc(S.crashX, S.crashY, 11 + 4 * a, 0, TAU); ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+function render() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  ctx.fillStyle = INK; ctx.fillRect(0, 0, cv.width, cv.height);
+  let sx = 0, sy = 0;
+  if (S.shake > 0.3) { sx = (Math.random() - 0.5) * S.shake; sy = (Math.random() - 0.5) * S.shake; }
+  const k = scale * dpr, px = 1 / scale;
+  ctx.setTransform(k, 0, 0, k, sx * dpr, (offY + sy) * dpr);
+  ctx.fillStyle = BONE;
+  for (const d of dust) { ctx.globalAlpha = d.a; ctx.fillRect(d.x, d.y, d.s * px, d.s * px); }
+  ctx.globalAlpha = 1;
+  ctx.setTransform(k, 0, 0, k, (sx - S.cam * scale) * dpr, (offY + sy) * dpr);
+  ctx.globalCompositeOperation = 'lighter';
+  for (const p of S.pings) drawPing(p, px);
+  drawMoths(px);
+  drawSparks(px);
+  ctx.globalCompositeOperation = 'source-over';
+  if (S.mode === 'dying' || S.mode === 'over') drawCrash(px);
+  drawBat();
+  drawCharge(px);
+  drawPopups(px);
+}
+
+// ---------- HUD
+const H = {
+  score: $('score'), dist: $('dist'), moths: $('moths'), blind: $('blind'), blindWrap: $('blindWrap'),
+  pips: Array.from(document.querySelectorAll('#pips i')), fill: $('energyFill'), cost: $('costMark'),
+  echo: $('echoMs'), echoWrap: $('echoWrap')
+};
+const hc = {};
+const put = (key, el, v) => { if (hc[key] !== v) { hc[key] = v; el.textContent = v; } };
+function hud() {
+  if (S.mode !== 'play') return;
+  put('s', H.score, String(Math.floor(S.score)));
+  put('x', multEl, '×' + S.mult);
+  put('d', H.dist, Math.floor(S.dist) + ' m');
+  put('m', H.moths, String(S.mothCount));
+  const blind = S.t - S.lastPing;
+  put('b', H.blind, blind.toFixed(1));
+  if (hc.mo !== S.mult) {
+    hc.mo = S.mult;
+    multEl.classList.toggle('on', S.mult > 1);
+    H.blindWrap.classList.toggle('hot', S.mult >= 3);
+    H.pips.forEach((p, i) => p.classList.toggle('on', S.mult >= i + 2));
+  }
+  const prog = S.mult >= 5 ? 0 : (blind % 1.5) / 1.5;
+  H.pips.forEach((p, i) => p.style.setProperty('--p', (i === S.mult - 1 ? prog * 100 : 0).toFixed(1) + '%'));
+  H.fill.style.transform = `scaleX(${(S.energy / 100).toFixed(3)})`;
+  H.fill.classList.toggle('low', S.energy < 22);
+  if (S.charging) {
+    const c = Math.min(S.charge, maxCharge());
+    const cost = S.energy < 10 ? S.energy : 10 + 24 * c;
+    H.cost.style.left = (S.energy - cost).toFixed(2) + '%';
+    H.cost.style.width = cost.toFixed(2) + '%';
+    H.cost.hidden = false;
+  } else if (!H.cost.hidden) H.cost.hidden = true;
+  put('e', H.echo, S.echoMs == null ? '--' : S.echoMs.toFixed(1));
+  H.echoWrap.classList.toggle('danger', S.echoNear < 85);
+  pingBtn.style.setProperty('--c', S.charging ? Math.min(S.charge, maxCharge()).toFixed(3) : '0');
+}
+
+// ---------- boot
+let last = 0, booted = false;
+function frame(now) {
+  const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
+  last = now;
+  update(dt); render(); hud();
+  requestAnimationFrame(frame);
+}
+function boot(data) {
+  if (booted) return;
+  booted = true;
+  if (data && +data.best > best) best = +data.best;
+  resize();
+  newWorld();
+  S.mode = 'attract'; S.attractNext = 0;
+  S.bat.x = batOffset();
+  genUntil(viewW + 900);
+  for (let i = 0; i < 75; i++) update(1 / 60);
+  renderBest();
+  setUI('attract');
+  render();
+  last = performance.now();
+  requestAnimationFrame(frame);
+}
+try { window.claude && window.claude.hot && window.claude.hot.snapshot && window.claude.hot.snapshot(() => ({ best })); } catch (e) {}
+const hot = window.claude && window.claude.hot;
+if (hot && hot.ready) hot.ready(boot); else boot((hot && hot.data) || {});
+})();
+</script>
+
+</body></html>
